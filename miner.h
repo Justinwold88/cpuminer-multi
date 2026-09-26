@@ -245,6 +245,7 @@ extern bool opt_redirect;
 extern int opt_timeout;
 extern bool want_longpoll;
 extern bool have_longpoll;
+extern bool have_gbt;
 extern bool want_stratum;
 extern bool have_stratum;
 extern char *opt_cert;
@@ -267,11 +268,19 @@ extern void applog(int prio, const char *fmt, ...) PRINTF_FMT(2, 3);
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 	const char *rpc_req, int *curl_err, int flags);
 extern char *bin2hex(const unsigned char *p, size_t len);
+extern void bin2hex_buf(char *s, const unsigned char *p, size_t len);
+extern void memrev(unsigned char *p, size_t len);
+extern int varint_encode(unsigned char *p, uint64_t n);
+extern size_t address_to_script(unsigned char *out, size_t outsz, const char *addr);
 extern bool hex2bin(unsigned char *p, const char *hexstr, size_t len);
 extern int timeval_subtract(struct timeval *result, struct timeval *x,
 	struct timeval *y);
 extern bool fulltest(const uint32_t *hash, const uint32_t *target);
 extern void diff_to_target(uint32_t *target, double diff);
+
+/* hex of a block's transaction count and transactions (megabytes), shared
+ * by all the copies of a piece of work instead of copied (cpu-miner.c) */
+struct txs_ref;
 
 struct work {
     uint32_t data[32];
@@ -282,6 +291,11 @@ struct work {
     char *job_id;
     size_t xnonce2_len;
     unsigned char *xnonce2;
+
+    /* getblocktemplate */
+    int64_t height;
+    struct txs_ref *txs;	/* the block's transactions, shared */
+    char *workid;
 };
 
 struct stratum_job {
