@@ -176,10 +176,12 @@ static uint32_t rpc2_target = 0;
 static char *rpc2_job_id = NULL;
 bool aes_ni_supported = false;
 
-pthread_mutex_t applog_lock;
-static pthread_mutex_t stats_lock;
-static pthread_mutex_t rpc2_job_lock;
-static pthread_mutex_t rpc2_login_lock;
+/* Statically initialized: applog() can run before main() gets far, and a
+ * zero-filled mutex is not a valid mutex everywhere (e.g. winpthreads). */
+pthread_mutex_t applog_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t rpc2_job_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t rpc2_login_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
@@ -292,7 +294,7 @@ static struct option const options[] = {
 
 static struct work g_work;
 static time_t g_work_time;
-static pthread_mutex_t g_work_lock;
+static pthread_mutex_t g_work_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bool rpc2_login(CURL *curl);
 static void workio_cmd_free(struct workio_cmd *wc);
@@ -1860,10 +1862,6 @@ int main(int argc, char *argv[]) {
 		sprintf(rpc_userpass, "%s:%s", rpc_user, rpc_pass);
 	}
 
-	pthread_mutex_init(&applog_lock, NULL );
-	pthread_mutex_init(&stats_lock, NULL );
-	pthread_mutex_init(&g_work_lock, NULL );
-	pthread_mutex_init(&rpc2_job_lock, NULL );
 	pthread_mutex_init(&stratum.sock_lock, NULL );
 	pthread_mutex_init(&stratum.work_lock, NULL );
 
