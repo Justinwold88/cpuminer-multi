@@ -207,6 +207,11 @@ extern int scanhash_x15(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 extern int scanhash_qubit(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 
+extern int scanhash_neoscrypt(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+                            uint32_t max_nonce, uint64_t *hashes_done);
+extern int neoscrypt_use_impl(int impl);
+extern const char *neoscrypt_impl_name(void);
+
 /* Odocrypt (DigiByte): the key is the block time rounded down to a whole
  * number of "shape change" periods; testnet's period is 1 day */
 #define ODO_INTERVAL_MAINNET (10 * 24 * 60 * 60)
@@ -235,6 +240,7 @@ extern void x14hash(void *output, const void *input);
 extern void x15hash(void *output, const void *input);
 extern void qubithash(void *output, const void *input);
 extern void odohash(void *output, const void *input);
+extern void neoscrypt_hash(void *output, const void *input);
 
 /* CryptoNight job blobs: the nonce is at bytes 39..42 */
 #define RPC2_MIN_BLOB 43

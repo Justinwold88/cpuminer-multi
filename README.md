@@ -34,6 +34,7 @@ Algorithms
 | `skein` | DigiByte (Skein) | works (fixed in this fork) |
 | `qubit` | DigiByte (Qubit) | works (new in this fork) |
 | `odo` | DigiByte (Odocrypt) | works (new in this fork) |
+| `neoscrypt` | Feathercoin, and other NeoScrypt coins | works (new in this fork) |
 | `cryptonight` | Bytecoin and other coins on the original CryptoNight | works (fixed in this fork) |
 | `scrypt:N` | scrypt with N other than 1024 (Vertcoin used it until 2014) | legacy |
 | `keccak` | Maxcoin | legacy |
@@ -51,8 +52,8 @@ today, so a CPU earns next to nothing on them. They are useful for testing
 and for testnets.
 
 Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
-and Myriad moved to other algorithms too. Planned: RandomX, NeoScrypt,
-Verthash, Argon2d and Yescrypt.
+and Myriad moved to other algorithms too. Planned: RandomX, Verthash,
+Argon2d and Yescrypt.
 
 Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
 broken) and the unused scrypt-jane sources.
@@ -123,6 +124,8 @@ fastest code on one machine, build there with
   FreeBSD 9.1, OS X 10.6.8, Windows 7 SP1 and later). configure warns if the
   assembler lacks an instruction set; the miner still builds without it.
 * **32-bit x86**: SSE2 assembly for scrypt and SHA-256d, picked at run time.
+* **x86-64**: NeoScrypt uses AVX2 or AVX-512 when the CPU has them, and
+  hashes 4 nonces at a time.
 * **x86, 32 and 64-bit**: CryptoNight uses AES-NI when the CPU has it. On
   Linux, its 2 MiB scratchpad goes on a transparent huge page when the
   kernel allows it (`/sys/kernel/mm/transparent_hugepage/enabled` set to

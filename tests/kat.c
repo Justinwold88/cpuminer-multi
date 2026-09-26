@@ -5,6 +5,7 @@
  *  - sha256d, scrypt: Python's hashlib
  *  - x11: the Dash genesis block hash
  *  - sha256d, scrypt, skein, qubit, odo: real DigiByte blocks (block_vectors)
+ *  - neoscrypt: real Feathercoin blocks, and Feathercoin Core's code
  *  - odo: DigiByte Core's cipher test vectors, and its implementation for
  *    the synthetic headers
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
@@ -166,13 +167,19 @@ static const struct {
 		"ffdbde284c06c8187d104267fcf15228dc309299228daf62baa92b904c1048d3",
 		"74972069d57a94bc2a750e726944f2c52249534434c7411f1bcb201d5b1635a9",
 		"1dac4cbb5d3d1d1aed0f59d3469a4bf59173dfb320a0f36f002e23a4a9362b3e" } },
+	{ "neoscrypt", neoscrypt_hash, scanhash_neoscrypt, {
+		"d5565bd5b3875f583ca4eb212ea4ab15809f0895f0ff128bd1068da9e4bddb27",
+		"8f8eea00585b98a86599601ef37a5554161562086c6342f4d4e2fcddadae4deb",
+		"8c14059f6fde4f7f965164f22eb2ffdd14fed07551e192081d473b40b6a21ff8" } },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
 /*
- * Real blocks: the header, and its proof-of-work hash as block explorers
- * show it (most significant byte first). The headers were checked against
- * their block hashes, which chain from one block to the next.
+ * Real blocks: the header, and its proof-of-work hash, most significant
+ * byte first as block explorers show hashes. The headers were checked
+ * against their block hashes, which chain from one block to the next.
+ * Explorers do not show Feathercoin's NeoScrypt hashes: those come from
+ * Feathercoin Core's code, and each is below its block's target.
  */
 static const struct {
 	const char *what;
@@ -205,6 +212,21 @@ static const struct {
 	  "00000000965873e67854ef5a56dc315911f26c4222d2bd2c9741fc1ed1c5254e"
 	  "cf11136cae13c85fd061181af8a005a6",
 	  "000000000000072b3027c9ade646147ae57d1bab5cd6c1b2bfde9d7423bf2a50" },
+	{ "Feathercoin block 6369117", "neoscrypt",
+	  "040000209f6c175876f3896edc62293147eaf961aac07160134b8ff41256669d"
+	  "236ab3e3f94ac17342f310122f6da79aed5443d6b743e811c709ef1f519e15ca"
+	  "152762789735b86a3c4a481c0128aa1b",
+	  "000000000d1bd0e9ddc982d3dcbfc021fabeca8e062056d9310dacf1a8a13dc8" },
+	{ "Feathercoin block 6369118", "neoscrypt",
+	  "0400002051c70d29c21b30b880b2b59a8319e5b2f49cec4b07baad3c093c3605"
+	  "2d010e9a807b491fc3362dabfcad4ad03032b76e715a42a708698f8a982594aa"
+	  "18f40f03b435b86a5ce1451c00182c39",
+	  "0000000001e2c90039b3030ffe853761db261eda2d29b00c68dc94887b948ca3" },
+	{ "Feathercoin block 6369119", "neoscrypt",
+	  "00000020728f50ab7fc00c7254f8ca4e9c50f48a223aac6a59afa3509a7f976a"
+	  "c9dd75e71d0c9d0661be8d8bc902e22ce3712417872edc05204c55279c1116da"
+	  "716aef74be35b86a0c8d431c9cd9eff6",
+	  "000000003b7a84f2e1b0dd11e724834c79e92b8aad72c2a072836615b1f3bc05" },
 };
 
 /* DigiByte Core's Odocrypt cipher vectors (src/test/crypto_tests.cpp);
@@ -571,6 +593,38 @@ int main(int argc, char **argv)
 		failures += cn_scan_test(77);
 	}
 	aes_ni_supported = false;
+
+	/* every other NeoScrypt implementation this processor can run (the
+	 * best one ran above) */
+	{
+		static const char *const impl_names[] = {
+			"portable", "SSE2", "AVX2", "AVX-512"
+		};
+		size_t neo = find_algo("neoscrypt");
+		int best = neoscrypt_use_impl(-1);
+
+		for (int impl = 0; impl < best; impl++) {
+			char label[32];
+
+			snprintf(label, sizeof(label), " (%s)", impl_names[impl]);
+			if (neoscrypt_use_impl(impl) != impl) {
+				printf("skip neoscrypt (%s): not for this processor or build\n",
+				       impl_names[impl]);
+				continue;
+			}
+			for (h = 0; h < N_HEADERS; h++) {
+				algos[neo].fn(hash, header[h]);
+				snprintf(what, sizeof(what), "neoscrypt%s header #%zu",
+					 label, h);
+				failures += check(what, hash, algos[neo].expected[h]);
+			}
+			for (v = 0; v < sizeof(block_vectors) / sizeof(block_vectors[0]); v++)
+				if (!strcmp(block_vectors[v].algo, "neoscrypt"))
+					failures += block_test(v, label);
+			failures += scan_test(neo, header[2]);
+		}
+		neoscrypt_use_impl(-1);
+	}
 
 	printf("%d failure(s)\n", failures);
 	return failures ? 1 : 0;

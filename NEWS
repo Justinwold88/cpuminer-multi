@@ -3,6 +3,9 @@ Version multi 1.1.0 (unreleased)
 Algorithms
 - New: qubit and odo (Odocrypt) for DigiByte, checked against real
   DigiByte blocks; odo is 4 times as fast as DigiByte Core's own code.
+- New: neoscrypt (Feathercoin), checked against real Feathercoin blocks;
+  4 hashes at a time, 1.5 times as fast as Feathercoin Core's code with
+  SSE2 or NEON, 3 times with AVX2 and 3.7 times with AVX-512.
 - blake: shares are now valid for Blakecoin and the coins merge-mined
   with it (their transaction ids are single SHA-256).
 - skein: shares are checked against the real target (DigiByte); about

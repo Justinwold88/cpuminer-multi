@@ -2,7 +2,7 @@
 EXTRA_DIST	= autogen.sh example-cfg.json README.md LICENSE Dockerfile \
 		  sha3/aes_helper.c sha3/sph_hamsi_helper.c sha3/sph_x15_helper.c
 
-noinst_HEADERS	= compat.h elist.h miner.h \
+noinst_HEADERS	= compat.h elist.h miner.h neoscrypt-mix.h \
 		  crypto/c_blake256.h crypto/c_groestl.h crypto/c_jh.h \
 		  crypto/c_keccak.h crypto/c_skein.h crypto/groestl_tables.h \
 		  crypto/hash-ops.h crypto/hash.h crypto/int-util.h \
@@ -37,6 +37,7 @@ libalgos_a_SOURCES = \
 		  x15.c \
 		  qubit.c \
 		  odocrypt.c \
+		  neoscrypt.c \
 		  sha3/sph_keccak.c \
 		  sha3/sph_groestl.c \
 		  sha3/sph_skein.c \

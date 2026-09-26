@@ -114,6 +114,7 @@ enum algos {
     ALGO_X15,         /* X15 Whirlpool */
     ALGO_QUBIT,       /* Qubit */
     ALGO_ODO,         /* Odocrypt */
+    ALGO_NEOSCRYPT,   /* NeoScrypt(128, 2, 1) */
     ALGO_CRYPTONIGHT, /* CryptoNight */
 };
 
@@ -132,6 +133,7 @@ static const char *algo_names[] = {
     [ALGO_X15] =         "x15",
     [ALGO_QUBIT] =       "qubit",
     [ALGO_ODO] =         "odo",
+    [ALGO_NEOSCRYPT] =   "neoscrypt",
     [ALGO_CRYPTONIGHT] = "cryptonight",
 };
 
@@ -244,6 +246,7 @@ Options:\n\
                           skein        SHA-256 of Skein-512: DigiByte\n\
                           qubit        Qubit: DigiByte\n\
                           odo          Odocrypt: DigiByte\n\
+                          neoscrypt    NeoScrypt: Feathercoin\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -1861,6 +1864,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
     work->targetdiff = diff;
     switch (opt_algo) {
     case ALGO_SCRYPT:
+    case ALGO_NEOSCRYPT:
         diff_to_target(work->target, diff / (65536.0 * opt_diff_factor));
         break;
     case ALGO_FRESH:
@@ -2044,6 +2048,9 @@ static void *miner_thread(void *userdata) {
             case ALGO_CRYPTONIGHT:
                 max64 = 0x40LL;
                 break;
+            case ALGO_NEOSCRYPT:
+                max64 = 0x3fff;
+                break;
             case ALGO_FRESH:
             case ALGO_QUARK:
             case ALGO_X11:
@@ -2134,6 +2141,10 @@ static void *miner_thread(void *userdata) {
         case ALGO_ODO:
             rc = scanhash_odo(thr_id, work.data, work.target, work.odo_key,
                     max_nonce, &hashes_done);
+            break;
+        case ALGO_NEOSCRYPT:
+            rc = scanhash_neoscrypt(thr_id, work.data, work.target, max_nonce,
+                    &hashes_done);
             break;
         case ALGO_CRYPTONIGHT:
             rc = scanhash_cryptonight(thr_id, work.data, work.data_size,
@@ -2863,6 +2874,8 @@ int main(int argc, char *argv[]) {
 		aes_ni_supported = cryptonight_cpu_has_aesni();
 		applog(LOG_INFO, "Using JSON-RPC 2.0");
 		applog(LOG_INFO, "AES-NI: %s", aes_ni_supported ? "yes" : "no (using portable AES)");
+	} else if (opt_algo == ALGO_NEOSCRYPT) {
+		applog(LOG_INFO, "NeoScrypt: using %s", neoscrypt_impl_name());
 	}
 
 
