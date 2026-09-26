@@ -2389,8 +2389,11 @@ static void show_version_and_exit(void) {
 #if defined(USE_ASM) && defined(__x86_64__)
             " x86_64"
 #endif
-#if defined(USE_ASM) && defined(__i386__) || defined(__x86_64__)
+#if defined(USE_ASM) && (defined(__i386__) || defined(__x86_64__))
             " SSE2"
+#endif
+#if defined(USE_ASM) && defined(__x86_64__)
+            " AES-NI"
 #endif
 #if defined(__x86_64__) && defined(USE_AVX)
             " AVX"
