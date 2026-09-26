@@ -118,10 +118,13 @@ fastest code on one machine, build there with
 
 * **x86-64**: uses SSE2, AVX, AVX2 and XOP assembly for scrypt and SHA-256d
   when both the CPU and the operating system support them (Linux 2.6.30,
-  FreeBSD 9.1, OS X 10.6.8, Windows 7 SP1 and later), and AES-NI for
-  CryptoNight. configure warns if the assembler lacks an instruction set;
-  the miner still builds without it.
+  FreeBSD 9.1, OS X 10.6.8, Windows 7 SP1 and later). configure warns if the
+  assembler lacks an instruction set; the miner still builds without it.
 * **32-bit x86**: SSE2 assembly for scrypt and SHA-256d, picked at run time.
+* **x86, 32 and 64-bit**: CryptoNight uses AES-NI when the CPU has it. On
+  Linux, its 2 MiB scratchpad goes on a transparent huge page when the
+  kernel allows it (`/sys/kernel/mm/transparent_hugepage/enabled` set to
+  `madvise` or `always`, the default on most distributions).
 * **ARM64** (Raspberry Pi 3 and later with a 64-bit OS, Apple Silicon, AWS
   Graviton): portable C code.
 * **32-bit ARM**: assembly for ARMv5E and later, chosen when compiling. Add

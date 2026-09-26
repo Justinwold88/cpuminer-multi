@@ -6,6 +6,9 @@ Algorithms
 - skein: shares are checked against the real target (DigiByte).
 - cryptonight: the whole job blob is hashed (pools send 76-byte and
   longer blobs), with 64-bit share targets; works over stratum and HTTP.
+  About 45% faster with AES-NI (intrinsics instead of a function call per
+  AES round, one scratchpad per thread on a huge page), now also on
+  32-bit x86; the OpenAES library is gone.
 - keccak and all the scan loops check shares against the real target.
 - Removed heavy (Heavycoin) and the unused scrypt-jane sources.
 

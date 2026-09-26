@@ -37,9 +37,6 @@
 #endif
 #include <jansson.h>
 #include <curl/curl.h>
-#if defined(USE_ASM) && defined(__x86_64__)
-#include <cpuid.h>
-#endif
 #include "compat.h"
 #include "miner.h"
 
@@ -2393,7 +2390,8 @@ static void show_version_and_exit(void) {
 #if defined(USE_ASM) && (defined(__i386__) || defined(__x86_64__))
             " SSE2"
 #endif
-#if defined(USE_ASM) && defined(__x86_64__)
+#if (defined(__x86_64__) || defined(__i386__)) && \
+    (defined(__GNUC__) || defined(__clang__))
             " AES-NI"
 #endif
 #if defined(__x86_64__) && defined(USE_AVX)
@@ -2723,22 +2721,6 @@ static void signal_handler(int sig) {
 }
 #endif
 
-/* True when this build has AES-NI code (x86-64 assembly) and the CPU
- * supports it. Other builds (32-bit x86, ARM, --disable-assembly) always
- * use the portable AES code. */
-static bool has_aes_ni(void)
-{
-#if defined(USE_ASM) && defined(__x86_64__)
-	unsigned int eax, ebx, ecx, edx;
-
-	if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
-		return false;
-	return (ecx & bit_AES) != 0;
-#else
-	return false;
-#endif
-}
-
 int main(int argc, char *argv[]) {
 	struct thr_info *thr;
 	long flags;
@@ -2762,7 +2744,7 @@ int main(int argc, char *argv[]) {
 		init_blakehash_contexts();
 	} else if(opt_algo == ALGO_CRYPTONIGHT) {
 		jsonrpc_2 = true;
-		aes_ni_supported = has_aes_ni();
+		aes_ni_supported = cryptonight_cpu_has_aesni();
 		applog(LOG_INFO, "Using JSON-RPC 2.0");
 		applog(LOG_INFO, "AES-NI: %s", aes_ni_supported ? "yes" : "no (using portable AES)");
 	}

@@ -204,6 +204,7 @@ extern int scanhash_x15(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 
 extern void cryptonight_hash(void* output, const void* input, size_t input_len);
+extern bool cryptonight_cpu_has_aesni(void);
 
 /* Single-shot proof-of-work hashes of an 80-byte block header (header byte
  * order in, 32-byte hash out). The scan loops call these per nonce; tests

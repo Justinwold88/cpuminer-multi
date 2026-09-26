@@ -20,6 +20,7 @@
 #include "cpuminer-config.h"
 #include "miner.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,17 @@ static struct work_restart restart_flags[1];
 struct work_restart *work_restart = restart_flags;
 bool aes_ni_supported = false;
 bool opt_debug = false;
+
+void applog(int prio, const char *fmt, ...)
+{
+	va_list ap;
+
+	(void) prio;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fputc('\n', stderr);
+}
 
 bool fulltest(const uint32_t *hash, const uint32_t *target)
 {
@@ -371,14 +383,26 @@ int main(int argc, char **argv)
 	for (a = 0; a < N_ALGOS; a++)
 		failures += scan_test(a, header[2]);
 
-	for (v = 0; v < sizeof(cn_vectors) / sizeof(cn_vectors[0]); v++) {
-		cryptonight_hash(hash, cn_vectors[v].input, strlen(cn_vectors[v].input));
-		snprintf(what, sizeof(what), "cryptonight \"%s\"", cn_vectors[v].input);
-		failures += check(what, hash, cn_vectors[v].expected);
-	}
+	/* both CryptoNight implementations: portable C, and AES-NI when the
+	 * CPU has it */
+	for (int impl = 0; impl < 2; impl++) {
+		const char *name = impl ? "AES-NI" : "portable";
 
-	failures += cn_scan_test(76);
-	failures += cn_scan_test(77);
+		if (impl && !cryptonight_cpu_has_aesni()) {
+			printf("skip cryptonight (AES-NI): this CPU or build has no AES-NI\n");
+			break;
+		}
+		aes_ni_supported = impl;
+		for (v = 0; v < sizeof(cn_vectors) / sizeof(cn_vectors[0]); v++) {
+			cryptonight_hash(hash, cn_vectors[v].input, strlen(cn_vectors[v].input));
+			snprintf(what, sizeof(what), "cryptonight (%s) \"%s\"", name,
+				 cn_vectors[v].input);
+			failures += check(what, hash, cn_vectors[v].expected);
+		}
+		failures += cn_scan_test(76);
+		failures += cn_scan_test(77);
+	}
+	aes_ni_supported = false;
 
 	printf("%d failure(s)\n", failures);
 	return failures ? 1 : 0;

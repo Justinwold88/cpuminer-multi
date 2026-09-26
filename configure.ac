@@ -123,14 +123,6 @@ AC_CHECK_LIB([pthread], [pthread_create], PTHREAD_LIBS="-lpthread",
       AC_CHECK_LIB([pthreadGC], [pthread_create], PTHREAD_LIBS="-lpthreadGC"
 ))))
 
-AC_MSG_CHECKING(whether __uint128_t is supported)
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([static __uint128_t i = 100;])],
-      AC_DEFINE(USE_INT128, 1, [Define if __uint128_t is available])
-      AC_MSG_RESULT(yes)
-    ,
-      AC_MSG_RESULT(no)
-)
-
 PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.15.2], [],
   [dnl no pkg-config file: e.g. the libcurl that comes with macOS
    AC_CHECK_HEADER([curl/curl.h], [],

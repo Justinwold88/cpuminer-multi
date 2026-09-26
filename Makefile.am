@@ -6,7 +6,7 @@ noinst_HEADERS	= compat.h elist.h miner.h \
 		  crypto/c_blake256.h crypto/c_groestl.h crypto/c_jh.h \
 		  crypto/c_keccak.h crypto/c_skein.h crypto/groestl_tables.h \
 		  crypto/hash-ops.h crypto/hash.h crypto/int-util.h \
-		  crypto/oaes_config.h crypto/oaes_lib.h crypto/skein_port.h \
+		  crypto/skein_port.h \
 		  sha3/sph_blake.h sha3/sph_bmw.h sha3/sph_cubehash.h \
 		  sha3/sph_echo.h sha3/sph_fugue.h sha3/sph_groestl.h \
 		  sha3/sph_hamsi.h sha3/sph_jh.h sha3/sph_keccak.h \
@@ -50,7 +50,6 @@ libalgos_a_SOURCES = \
 		  sha3/sph_fugue.c \
 		  sha3/sph_shabal.c \
 		  sha3/sph_whirlpool.c \
-		  crypto/oaes_lib.c \
 		  crypto/c_keccak.c \
 		  crypto/c_groestl.c \
 		  crypto/c_blake256.c \
@@ -64,7 +63,7 @@ if ARCH_x86
 libalgos_a_SOURCES += sha2-x86.S scrypt-x86.S
 endif
 if ARCH_x86_64
-libalgos_a_SOURCES += sha2-x64.S scrypt-x64.S aesb-x64.S
+libalgos_a_SOURCES += sha2-x64.S scrypt-x64.S
 endif
 if ARCH_ARM
 libalgos_a_SOURCES += sha2-arm.S scrypt-arm.S
