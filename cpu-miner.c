@@ -36,6 +36,9 @@
 #endif
 #include <jansson.h>
 #include <curl/curl.h>
+#if defined(USE_ASM) && defined(__x86_64__)
+#include <cpuid.h>
+#endif
 #include "compat.h"
 #include "miner.h"
 
@@ -1806,23 +1809,20 @@ static void signal_handler(int sig) {
 }
 #endif
 
-#ifndef __arm__
-static inline int cpuid(int code, uint32_t where[4]) {
-	asm volatile("cpuid":"=a"(*where),"=b"(*(where+1)),
-			"=c"(*(where+2)),"=d"(*(where+3)):"a"(code));
-	return (int)where[0];
-}
-#endif
-
-static bool has_aes_ni()
+/* True when this build has AES-NI code (x86-64 assembly) and the CPU
+ * supports it. Other builds (32-bit x86, ARM, --disable-assembly) always
+ * use the portable AES code. */
+static bool has_aes_ni(void)
 {
-	#ifdef __arm__
+#if defined(USE_ASM) && defined(__x86_64__)
+	unsigned int eax, ebx, ecx, edx;
+
+	if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
+		return false;
+	return (ecx & bit_AES) != 0;
+#else
 	return false;
-	#else
-	uint32_t cpu_info[4];
-	cpuid(1, cpu_info);
-	return cpu_info[2] & (1 << 25);
-	#endif
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -1844,7 +1844,7 @@ int main(int argc, char *argv[]) {
 		jsonrpc_2 = true;
 		aes_ni_supported = has_aes_ni();
 		applog(LOG_INFO, "Using JSON-RPC 2.0");
-		applog(LOG_INFO, "CPU Supports AES-NI: %s", aes_ni_supported ? "YES" : "NO");
+		applog(LOG_INFO, "AES-NI: %s", aes_ni_supported ? "yes" : "no (using portable AES)");
 	}
 
 

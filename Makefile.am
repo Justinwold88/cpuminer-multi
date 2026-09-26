@@ -48,13 +48,13 @@ libalgos_a_SOURCES = \
 
 if USE_ASM
 if ARCH_x86
-libalgos_a_SOURCES += sha2-x86.S scrypt-x86.S aesb-x86.S crypto/aesb-x86-impl.c
+libalgos_a_SOURCES += sha2-x86.S scrypt-x86.S
 endif
 if ARCH_x86_64
 libalgos_a_SOURCES += sha2-x64.S scrypt-x64.S aesb-x64.S
 endif
 if ARCH_ARM
-libalgos_a_SOURCES += sha2-arm.S scrypt-arm.S aesb-arm.S crypto/aesb-x86-impl.c
+libalgos_a_SOURCES += sha2-arm.S scrypt-arm.S
 endif
 endif
 

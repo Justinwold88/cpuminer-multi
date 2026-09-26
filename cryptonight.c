@@ -60,10 +60,16 @@ static void do_skein_hash(const void* input, size_t len, char* output) {
 	assert(likely(SKEIN_SUCCESS == r));
 }
 
-extern int fast_aesb_single_round(const uint8_t *in, uint8_t*out, const uint8_t *expandedKey);
-extern int aesb_single_round(const uint8_t *in, uint8_t*out, const uint8_t *expandedKey);
-extern int aesb_pseudo_round_mut(uint8_t *val, uint8_t *expandedKey);
-extern int fast_aesb_pseudo_round_mut(uint8_t *val, uint8_t *expandedKey);
+/* Portable AES rounds (crypto/aesb.c) */
+void aesb_single_round(const uint8_t *in, uint8_t *out, const uint8_t *expandedKey);
+void aesb_pseudo_round_mut(uint8_t *val, const uint8_t *expandedKey);
+
+#if defined(USE_ASM) && defined(__x86_64__)
+/* AES-NI rounds (aesb-x64.S); only used when the CPU reports AES-NI */
+#define HAVE_AESNI_ASM 1
+void fast_aesb_single_round(const uint8_t *in, uint8_t *out, const uint8_t *expandedKey);
+void fast_aesb_pseudo_round_mut(uint8_t *val, const uint8_t *expandedKey);
+#endif
 
 static void (* const extra_hashes[4])(const void *, size_t, char *) = {
 		do_blake_hash, do_groestl_hash, do_jh_hash, do_skein_hash
@@ -186,6 +192,7 @@ void cryptonight_hash(void* output, const void* input, size_t len) {
 	free(ctx);
 }
 
+#ifdef HAVE_AESNI_ASM
 void cryptonight_hash_ctx_aes_ni(void* output, const void* input, size_t len, struct cryptonight_ctx* ctx) {
 	hash_process(&ctx->state.hs, (const uint8_t*) input, len);
 	ctx->aes_ctx = (oaes_ctx*) oaes_alloc();
@@ -253,6 +260,7 @@ void cryptonight_hash_ctx_aes_ni(void* output, const void* input, size_t len, st
 	extra_hashes[ctx->state.hs.b[0] & 3](&ctx->state, 200, output);
 	oaes_free((OAES_CTX **) &ctx->aes_ctx);
 }
+#endif /* HAVE_AESNI_ASM */
 
 int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		uint32_t max_nonce, uint64_t *hashes_done) {
@@ -264,6 +272,7 @@ int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 
 	struct cryptonight_ctx *ctx = (struct cryptonight_ctx*)malloc(sizeof(struct cryptonight_ctx));
 
+#ifdef HAVE_AESNI_ASM
 	if (aes_ni_supported) {
 		do {
 			*nonceptr = ++n;
@@ -274,7 +283,9 @@ int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 				return true;
 			}
 		} while (likely((n <= max_nonce && !work_restart[thr_id].restart)));
-	} else {
+	} else
+#endif
+	{
 		do {
 			*nonceptr = ++n;
 			cryptonight_hash_ctx(hash, pdata, 76, ctx);
