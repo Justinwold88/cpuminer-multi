@@ -155,6 +155,7 @@ static json_t *opt_config;
 static const bool opt_time = true;
 static enum algos opt_algo = ALGO_SCRYPT;
 static int opt_scrypt_n = 1024;
+static double opt_diff_factor = 1.0;
 static int opt_n_threads;
 static int num_processors;
 static char *rpc_url;
@@ -221,6 +222,7 @@ Options:\n\
   -O, --userpass=U:P    username:password pair for mining server\n\
   -u, --user=USERNAME   username for mining server\n\
   -p, --pass=PASSWORD   password for mining server\n\
+  -f, --diff-factor=N   divide the pool's share difficulty by N (default: 1)\n\
       --cert=FILE       certificate for mining server using SSL\n\
   -x, --proxy=[PROTOCOL://]HOST[:PORT]  connect through a proxy\n\
   -t, --threads=N       number of miner threads (default: number of processors)\n\
@@ -258,7 +260,7 @@ static char const short_options[] =
 #ifdef HAVE_SYSLOG_H
                 "S"
 #endif
-        "a:c:Dhp:Px:qr:R:s:t:T:o:u:O:V";
+        "a:c:Df:hp:Px:qr:R:s:t:T:o:u:O:V";
 
 static struct option const options[] = {
         { "algo", 1, NULL, 'a' },
@@ -269,6 +271,7 @@ static struct option const options[] = {
         { "cert", 1, NULL, 1001 },
         { "config", 1, NULL, 'c' },
         { "debug", 0, NULL, 'D' },
+        { "diff-factor", 1, NULL, 'f' },
         { "help", 0, NULL, 'h' },
         { "no-longpoll", 0, NULL, 1003 },
         { "no-redirect", 0, NULL, 1009 },
@@ -996,8 +999,13 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
         work->xnonce2 = realloc(work->xnonce2, sctx->xnonce2_size);
         memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
 
-        /* Generate merkle root */
-        sha256d(merkle_root, sctx->job.coinbase, sctx->job.coinbase_size);
+        /* Generate merkle root. Bitcoin-derived coins identify the
+         * coinbase transaction by double SHA-256; Blakecoin (and the coins
+         * merge-mined with it) and Maxcoin use a single SHA-256. */
+        if (opt_algo == ALGO_BLAKE || opt_algo == ALGO_KECCAK)
+            sha256_hash(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
+        else
+            sha256d(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
         for (i = 0; i < sctx->job.merkle_count; i++) {
             memcpy(merkle_root + 32, sctx->job.merkle[i], 32);
             sha256d(merkle_root, merkle_root, 64);
@@ -1028,10 +1036,22 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
             free(xnonce2str);
         }
 
-        if (opt_algo == ALGO_SCRYPT)
-            diff_to_target(work->target, sctx->job.diff / 65536.0);
-        else
-            diff_to_target(work->target, sctx->job.diff);
+        /* Pools express share difficulty relative to a per-algorithm
+         * "difficulty 1" target */
+        switch (opt_algo) {
+        case ALGO_SCRYPT:
+            diff_to_target(work->target, sctx->job.diff / (65536.0 * opt_diff_factor));
+            break;
+        case ALGO_FRESH:
+            diff_to_target(work->target, sctx->job.diff / (256.0 * opt_diff_factor));
+            break;
+        case ALGO_KECCAK:
+            diff_to_target(work->target, sctx->job.diff / (128.0 * opt_diff_factor));
+            break;
+        default:
+            diff_to_target(work->target, sctx->job.diff / opt_diff_factor);
+            break;
+        }
     }
 }
 
@@ -1602,6 +1622,14 @@ static void parse_arg(int key, char *arg) {
     case 'D':
         opt_debug = true;
         break;
+    case 'f': {
+        char *ep;
+        double d = strtod(arg, &ep);
+        if (*ep || !(d > 0.0) || d > 1e9)
+            show_usage_and_exit(1);
+        opt_diff_factor = d;
+        break;
+    }
     case 'p':
         free(rpc_pass);
         rpc_pass = strdup(arg);
