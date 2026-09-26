@@ -1,0 +1,104 @@
+# Build and test on every platform the miner supports: the known-answer
+# tests ("make check") check every algorithm against reference hashes.
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}, ${{ matrix.cc }}${{ matrix.variant && format(', {0}', matrix.variant) || '' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, distcheck: true }
+          - { os: ubuntu-24.04, arch: x86-64, cc: clang }
+          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, variant: no assembly, configure: --disable-assembly }
+          - os: ubuntu-24.04
+            arch: x86-64
+            cc: gcc
+            variant: sanitizers
+            cflags: -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
+            ldflags: -fsanitize=address,undefined
+          - { os: ubuntu-24.04-arm, arch: arm64, cc: gcc }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake pkg-config libcurl4-openssl-dev libjansson-dev
+      - run: ./autogen.sh
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: ${{ matrix.cflags || '-O2' }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: ./configure ${{ matrix.configure }}
+      - run: make -j"$(nproc)"
+      - run: make check VERBOSE=1
+      - run: ./minerd --version
+      - name: Check the source tarball builds
+        if: matrix.distcheck
+        run: make distcheck
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, arch: arm64 }
+          - { os: macos-15-intel, arch: x86-64 }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: brew install autoconf automake pkgconf jansson
+      - run: ./autogen.sh
+      - run: ./configure
+      - run: make -j"$(sysctl -n hw.ncpu)"
+      - run: make check VERBOSE=1
+      - run: ./minerd --version
+
+  windows:
+    name: Windows x86-64 (MSYS2 UCRT64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            autoconf
+            automake
+            make
+          pacboy: >-
+            gcc:p
+            curl:p
+            jansson:p
+            pkgconf:p
+      - run: ./autogen.sh
+      - run: ./configure
+      - run: make -j"$(nproc)"
+      - run: make check VERBOSE=1
+      - name: Package minerd.exe with the DLLs it needs
+        run: |
+          mkdir dist
+          cp minerd.exe README.md LICENSE COPYING dist/
+          ldd minerd.exe | awk '$3 ~ /\/ucrt64\// { print $3 }' | xargs -r cp -t dist/
+          dist/minerd.exe --version
+      - uses: actions/upload-artifact@v5
+        with:
+          name: minerd-windows-x86_64
+          path: dist/

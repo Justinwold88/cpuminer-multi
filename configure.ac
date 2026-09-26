@@ -119,8 +119,14 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([static __uint128_t i = 100;])],
       AC_MSG_RESULT(no)
 )
 
-PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.15.2])
-PKG_CHECK_MODULES([JANSSON], [jansson >= 2.7])
+PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.15.2], [],
+  [dnl no pkg-config file: e.g. the libcurl that comes with macOS
+   AC_CHECK_HEADER([curl/curl.h], [],
+     [AC_MSG_ERROR([libcurl not found: install its development package (Debian/Ubuntu: libcurl4-openssl-dev, Fedora: libcurl-devel, MSYS2: mingw-w64-ucrt-x86_64-curl)])])
+   AC_CHECK_LIB([curl], [curl_easy_init], [LIBCURL_LIBS=-lcurl],
+     [AC_MSG_ERROR([libcurl not found: install its development package (Debian/Ubuntu: libcurl4-openssl-dev, Fedora: libcurl-devel, MSYS2: mingw-w64-ucrt-x86_64-curl)])])])
+PKG_CHECK_MODULES([JANSSON], [jansson >= 2.7], [],
+  [AC_MSG_ERROR([jansson 2.7 or newer not found: install its development package (Debian/Ubuntu: libjansson-dev, Fedora: jansson-devel, macOS: brew install jansson, MSYS2: mingw-w64-ucrt-x86_64-jansson)])])
 
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([USE_ASM], [test x$enable_assembly != xno])
