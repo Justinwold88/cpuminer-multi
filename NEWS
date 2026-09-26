@@ -23,6 +23,11 @@ Mining
   while shares are being sent; shares that cannot be sent are dropped
   instead of retried forever; at most 256 shares wait to be sent.
 - -f, --diff-factor divides the pool's share difficulty.
+- Thread safety: the data races found by ThreadSanitizer are fixed (the
+  work-restart flag and other shared flags are atomic), signals are taken
+  in a sigwait() thread (the old handler could deadlock), a spurious
+  wakeup can no longer stop the miner, and shares from before a
+  reconnect are no longer sent on the new connection.
 
 Platforms and building
 - Builds and passes its known-answer tests ("make check") on Linux
