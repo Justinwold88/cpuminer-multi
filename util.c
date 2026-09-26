@@ -601,34 +601,57 @@ void diff_to_target(uint32_t *target, double diff)
 #define socket_blocks() (errno == EAGAIN || errno == EWOULDBLOCK)
 #endif
 
+/* how long to wait for room in a full socket send buffer */
+#define STRATUM_SEND_TIMEOUT 30
+
+/* Send s and a newline (appended in place: s must have room for one more
+ * character; the terminating NUL is restored before returning). */
 static bool send_line(curl_socket_t sock, char *s)
 {
-	ssize_t len, sent = 0;
-	
+	size_t len, sent = 0;
+	time_t start = time(NULL);
+	bool ret = true;
+
 	len = strlen(s);
 	s[len++] = '\n';
 
-	while (len > 0) {
-		struct timeval timeout = {0, 0};
+	while (sent < len) {
+		struct timeval timeout = {1, 0};
 		ssize_t n;
 		fd_set wd;
 
+		/* the socket is non-blocking: wait until the kernel takes more */
 		FD_ZERO(&wd);
 		FD_SET(sock, &wd);
-		if (select(sock + 1, NULL, &wd, NULL, &timeout) < 1)
-			return false;
-		n = send(sock, s + sent, len, 0);
+		n = select(sock + 1, NULL, &wd, NULL, &timeout);
+		if (n < 1) {
+#ifndef _WIN32
+			if (n < 0 && errno == EINTR)
+				continue;
+#endif
+			if (n == 0 && time(NULL) - start < STRATUM_SEND_TIMEOUT)
+				continue;
+			ret = false;
+			break;
+		}
+		n = send(sock, s + sent, len - sent, 0);
 		if (n < 0) {
-			if (!socket_blocks())
-				return false;
+			if (!socket_blocks()) {
+				ret = false;
+				break;
+			}
 			n = 0;
 		}
 		sent += n;
-		len -= n;
 	}
 
-	return true;
+	s[len - 1] = '\0';
+	return ret;
 }
+
+#ifndef SHUT_RDWR
+#define SHUT_RDWR SD_BOTH	/* Windows */
+#endif
 
 bool stratum_send_line(struct stratum_ctx *sctx, char *s)
 {
@@ -638,7 +661,15 @@ bool stratum_send_line(struct stratum_ctx *sctx, char *s)
 		applog(LOG_DEBUG, "> %s", s);
 
 	pthread_mutex_lock(&sctx->sock_lock);
-	ret = send_line(sctx->sock, s);
+	/* after a disconnect sctx->sock is a closed (maybe reused) descriptor */
+	if (sctx->curl) {
+		ret = send_line(sctx->sock, s);
+		/* Part of the line may have gone out, so the connection is
+		 * unusable: shut it down, and the stratum thread (waiting in
+		 * select/recv on it) sees that at once and reconnects. */
+		if (!ret)
+			shutdown(sctx->sock, SHUT_RDWR);
+	}
 	pthread_mutex_unlock(&sctx->sock_lock);
 
 	return ret;

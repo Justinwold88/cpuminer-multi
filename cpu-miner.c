@@ -913,6 +913,13 @@ static bool workio_submit_work(struct workio_cmd *wc, CURL *curl) {
 
     /* submit solution to bitcoin via JSON-RPC */
     while (!submit_upstream_work(curl, wc->u.work)) {
+        /* Stratum job ids only mean something on the connection they
+         * came from, and that connection is gone: drop the share rather
+         * than stall every other share for a retry that cannot succeed. */
+        if (have_stratum) {
+            applog(LOG_ERR, "Share not sent: lost the connection to the pool");
+            return true;
+        }
         if (unlikely((opt_retries >= 0) && (++failures > opt_retries))) {
             applog(LOG_ERR, "...terminating workio thread");
             return false;
@@ -2058,6 +2065,12 @@ int main(int argc, char *argv[]) {
 	struct thr_info *thr;
 	long flags;
 	int i;
+
+#ifndef _WIN32
+	/* Writing to a connection the pool has closed must fail with EPIPE,
+	 * which the network code handles, instead of killing the miner. */
+	signal(SIGPIPE, SIG_IGN);
+#endif
 
 	rpc_user = strdup("");
 	rpc_pass = strdup("");
