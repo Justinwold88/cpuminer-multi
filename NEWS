@@ -45,6 +45,7 @@ Platforms and building
   longer needs OpenSSL.
 - GitHub Actions CI replaces Travis CI; the Dockerfile builds this tree.
 - Fixed undefined behaviour found with AddressSanitizer and UBSan.
+- 32-bit ARM builds no longer get an executable stack.
 
 Version multi 1.0.4 (Tanguy Pruvot)
 
