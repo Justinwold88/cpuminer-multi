@@ -42,16 +42,24 @@ int scanhash_blake(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 	const uint32_t Htarg = ptarget[7];
 	uint32_t hash64[8] __attribute__((aligned(32)));
 	uint32_t endiandata[20];
+	sph_blake256_context ctx_mid, ctx;
 	int k;
 
 	/* the hash function takes the header in big-endian word order */
 	for (k = 0; k < 19; k++)
 		be32enc(&endiandata[k], pdata[k]);
 
+	/* Only the nonce changes: hash the 76 bytes before it once. That
+	 * compresses the first 64-byte block, half the work of each hash. */
+	sph_blake256_init(&ctx_mid);
+	sph_blake256(&ctx_mid, endiandata, 76);
+
 	do {
 		pdata[19] = ++n;
 		be32enc(&endiandata[19], n);
-		blakehash(hash64, endiandata);
+		ctx = ctx_mid;
+		sph_blake256(&ctx, &endiandata[19], 4);
+		sph_blake256_close(&ctx, hash64);
 		if (hash64[7] <= Htarg && fulltest(hash64, ptarget)) {
 			*hashes_done = n - first_nonce + 1;
 			return 1;

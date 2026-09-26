@@ -27,17 +27,27 @@ int scanhash_skein(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 	const uint32_t first_nonce = pdata[19];
 	const uint32_t Htarg = ptarget[7];
 	uint32_t hash64[8] __attribute__((aligned(32)));
-	uint32_t endiandata[20];
+	uint32_t endiandata[20], hashA[16];
+	sph_skein512_context ctx_mid, ctx;
 	int k;
 
 	/* the hash function takes the header in big-endian word order */
 	for (k = 0; k < 19; k++)
 		be32enc(&endiandata[k], pdata[k]);
 
+	/* Only the nonce changes: hash the 76 bytes before it once. That
+	 * processes the first 64-byte block, one of the three Threefish
+	 * calls each hash used to make. */
+	sph_skein512_init(&ctx_mid);
+	sph_skein512(&ctx_mid, endiandata, 76);
+
 	do {
 		pdata[19] = ++n;
 		be32enc(&endiandata[19], n);
-		skeinhash(hash64, endiandata);
+		ctx = ctx_mid;
+		sph_skein512(&ctx, &endiandata[19], 4);
+		sph_skein512_close(&ctx, hashA);
+		sha256_hash((unsigned char *) hash64, (const unsigned char *) hashA, 64);
 		if (hash64[7] <= Htarg && fulltest(hash64, ptarget)) {
 			*hashes_done = n - first_nonce + 1;
 			return 1;
