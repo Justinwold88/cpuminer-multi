@@ -32,6 +32,7 @@ Algorithms
 | `x11` | Dash | works |
 | `blake` | Blakecoin, and the coins merge-mined with it (Photon, Electron, Universal Molecule, Lithium, BlakeBitcoin) | works (fixed in this fork) |
 | `skein` | DigiByte (Skein) | works (fixed in this fork) |
+| `qubit` | DigiByte (Qubit) | works (new in this fork) |
 | `cryptonight` | Bytecoin and other coins on the original CryptoNight | works (fixed in this fork) |
 | `scrypt:N` | scrypt with N other than 1024 (Vertcoin used it until 2014) | legacy |
 | `keccak` | Maxcoin | legacy |
@@ -50,7 +51,7 @@ and for testnets.
 
 Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
 and Myriad moved to other algorithms too. Planned: RandomX, DigiByte's
-Qubit and Odocrypt, NeoScrypt, Verthash, Argon2d and Yescrypt.
+Odocrypt, NeoScrypt, Verthash, Argon2d and Yescrypt.
 
 Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
 broken) and the unused scrypt-jane sources.

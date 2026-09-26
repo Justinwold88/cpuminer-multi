@@ -112,6 +112,7 @@ enum algos {
     ALGO_X13,         /* X13 */
     ALGO_X14,         /* X14 */
     ALGO_X15,         /* X15 Whirlpool */
+    ALGO_QUBIT,       /* Qubit */
     ALGO_CRYPTONIGHT, /* CryptoNight */
 };
 
@@ -128,6 +129,7 @@ static const char *algo_names[] = {
     [ALGO_X13] =         "x13",
     [ALGO_X14] =         "x14",
     [ALGO_X15] =         "x15",
+    [ALGO_QUBIT] =       "qubit",
     [ALGO_CRYPTONIGHT] = "cryptonight",
 };
 
@@ -236,6 +238,7 @@ Options:\n\
                           x11          X11: Dash\n\
                           blake        BLAKE-256, 8 rounds: Blakecoin\n\
                           skein        SHA-256 of Skein-512: DigiByte\n\
+                          qubit        Qubit: DigiByte\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -2003,6 +2006,7 @@ static void *miner_thread(void *userdata) {
             case ALGO_FRESH:
             case ALGO_QUARK:
             case ALGO_X11:
+            case ALGO_QUBIT:
                 max64 = 0x3ffff;
                 break;
             case ALGO_X13:
@@ -2079,6 +2083,10 @@ static void *miner_thread(void *userdata) {
             break;
         case ALGO_X15:
             rc = scanhash_x15(thr_id, work.data, work.target, max_nonce,
+                    &hashes_done);
+            break;
+        case ALGO_QUBIT:
+            rc = scanhash_qubit(thr_id, work.data, work.target, max_nonce,
                     &hashes_done);
             break;
         case ALGO_CRYPTONIGHT:

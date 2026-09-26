@@ -4,6 +4,7 @@
  * Every expected value was cross-checked against an independent source:
  *  - sha256d, scrypt: Python's hashlib
  *  - x11: the Dash genesis block hash
+ *  - sha256d, scrypt, skein, qubit: real DigiByte blocks (block_vectors)
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
  *  - all other sph-based algorithms: tpruvot/cpuminer-multi
  *
@@ -146,8 +147,45 @@ static const struct {
 		"215d26975dfcbd0045cbb5f3ee611124e1eaa15952dd8be86801b4f20133ad69",
 		"a53723d85835af68793e08d00e3658f12ec476fe6f42121cd3b5c58e19386164",
 		"b63178162027734fb758332d696cfd74675a093aaf0d426818905b0b12438755" } },
+	{ "qubit", qubithash, scanhash_qubit, {
+		"24b015e6b3c7d19e4a9b5ad7dce01bb589086e1fad098f8f3d891a3eca3ec641",
+		"f53c0bcbc5ba8db1792c74ea5a1eb7ee66783e24e4f4bffaccf591f86a49d842",
+		"1fd95112326c4118bdc8326ffb859513092b1aff568769aa1b304e7c5aaad095" } },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
+
+/*
+ * Real blocks: the header, and its proof-of-work hash as block explorers
+ * show it (most significant byte first). The headers were checked against
+ * their block hashes, which chain from one block to the next.
+ */
+static const struct {
+	const char *what;
+	const char *algo;
+	const char *header;
+	const char *pow;
+} block_vectors[] = {
+	{ "DigiByte block 12000000", "sha256d",
+	  "02024020b4280e4d968527e4594b59ed4abad908a13657faa658ad633576d278"
+	  "59226bbc43badc7960e2d361d5fb43070b13cbf47d68cd3b5c9a2622c59c3201"
+	  "e4f1ecabcc13c85f4f9b0219c3dab44e",
+	  "0000000000000000e231d6676909d4d54296d640d996453b6778cc8081239c1f" },
+	{ "DigiByte block 11999999", "skein",
+	  "0206002070a984f0cb24c667ff85a3f0038a54d109be25725a437ddbf7abc5f4"
+	  "e77fe5a793fccdfa37bc5a987ae9b343fb51409ce44f4a35712af2fd156774aa"
+	  "1d9cf9c3ca13c85f5a82031aaa244868",
+	  "0000000000000149b07f6790b110c0d19a04e43aca08c460cb2aa30084eb2caa" },
+	{ "DigiByte block 11999998", "qubit",
+	  "02080020d87606b7ef16aeb26e3bb328b17a595a3198a985ae0da9a5e7e3eb43"
+	  "e54b7ff2b650e5d37b588e6e4e4fbbd1b6228c8ab7a388e261e04863fd063589"
+	  "bb19f071c613c85f4aa0041af1b5373d",
+	  "0000000000000068c50fbf773bced2ae319ebc461f7635c59dd712835165344e" },
+	{ "DigiByte block 11999997", "scrypt",
+	  "0200002086d5a20406d7530ffc2998004a14e2a8ef618b79d54b203401000000"
+	  "000000009760d9bc89809f459161fecfe70c46673aac2f2980df4143e46029be"
+	  "2f2cff55c313c85fe7d2001b89c70c09",
+	  "0000000000003fae858e91a5636704d4f1aa665db53c0cddf175b9cc5ecf9a86" },
+};
 
 /* FIPS 180-2 SHA-256 test vectors (the last one needs two blocks, and
  * one with 55 bytes, the most that fits in one block with its padding) */
@@ -341,6 +379,38 @@ static int cn_scan_test(size_t len)
 	return failures;
 }
 
+/* index in algos[] of the algorithm called name; N_ALGOS if none */
+static size_t find_algo(const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < N_ALGOS; i++)
+		if (!strcmp(algos[i].name, name))
+			break;
+	return i;
+}
+
+/* a real block's proof-of-work hash */
+static int block_test(size_t v, const char *impl)
+{
+	unsigned char header[80], hash[32], pow[32];
+	char what[128], expected[65];
+	size_t a = find_algo(block_vectors[v].algo);
+	int i;
+
+	if (a == N_ALGOS || parse_hex(block_vectors[v].header, header, 80) != 80
+	    || parse_hex(block_vectors[v].pow, pow, 32) != 32) {
+		printf("FAIL %s: bad test vector\n", block_vectors[v].what);
+		return 1;
+	}
+	for (i = 0; i < 32; i++)	/* least significant byte first */
+		sprintf(expected + 2 * i, "%02x", pow[31 - i]);
+	algos[a].fn(hash, header);
+	snprintf(what, sizeof(what), "%s, %s%s", block_vectors[v].what,
+		 block_vectors[v].algo, impl);
+	return check(what, hash, expected);
+}
+
 static int hash_cli(const char *algo, const char *hex)
 {
 	unsigned char in[256], out[64];
@@ -354,10 +424,8 @@ static int hash_cli(const char *algo, const char *hex)
 	if (!strcmp(algo, "cryptonight")) {
 		cryptonight_hash(out, in, len);
 	} else {
-		size_t i;
-		for (i = 0; i < N_ALGOS; i++)
-			if (!strcmp(algos[i].name, algo))
-				break;
+		size_t i = find_algo(algo);
+
 		if (i == N_ALGOS || len != 80) {
 			fprintf(stderr, "unknown algorithm or input is not 80 bytes\n");
 			return 2;
@@ -410,6 +478,8 @@ int main(int argc, char **argv)
 					 algos[a].name, name, h);
 				failures += check(what, hash, algos[a].expected[h]);
 			}
+		for (v = 0; v < sizeof(block_vectors) / sizeof(block_vectors[0]); v++)
+			failures += block_test(v, name);
 		for (a = 0; a < N_ALGOS; a++)
 			failures += scan_test(a, header[2]);
 	}
