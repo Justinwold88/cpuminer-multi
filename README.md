@@ -1,124 +1,204 @@
-CPUMiner-Multi
+cpuminer-multi
 ==============
 
-[![Build Status](https://travis-ci.org/lucasjones/cpuminer-multi.svg?branch=master)](https://travis-ci.org/lucasjones/cpuminer-multi)
+[![build](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml/badge.svg)](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml)
 
-This is a multi-threaded CPU miner,
-fork of [pooler](//github.com/pooler)'s cpuminer (see AUTHORS for list of contributors).
+A multi-threaded CPU miner for many proof-of-work algorithms, for Linux,
+macOS and Windows on x86-64, 32-bit x86, ARM64 and 32-bit ARM.
 
-#### Table of contents
+This is a maintained fork of [Lucas Jones's cpuminer-multi](https://github.com/lucasjones/cpuminer-multi),
+itself a fork of [pooler's cpuminer](https://github.com/pooler/cpuminer)
+(see [AUTHORS](AUTHORS)). It fixes the bugs that stopped several algorithms and
+all solo mining from working, replaces what had died since 2015 (getwork,
+Travis CI, the Dockerfile), and is tested on every platform on every change.
+See [NEWS](NEWS) for what changed.
+
+#### Contents
 
 * [Algorithms](#algorithms)
-* [Dependencies](#dependencies)
 * [Download](#download)
-* [Build](#build)
-* [Usage instructions](#usage-instructions)
-* [Donations](#donations)
+* [Building](#building)
+* [Usage](#usage)
 * [Credits](#credits)
 * [License](#license)
 
 Algorithms
 ==========
-#### Currently supported
- * ✓ __scrypt__ (Litecoin, Dogecoin, Feathercoin, etc..)
- * ✓ __scrypt:N__ (Vertcoin [VTC])
- * ✓ __sha256d__ (Bitcoin, Freicoin, Peercoin/PPCoin, Terracoin, etc..)
- * ✓ __x11__ (Darkcoin [DRK], Hirocoin, Limecoin)
- * ✓ __x13__ (Sherlockcoin, [ACE], [B2B], [GRC], [XHC], etc..)
- * ✓ __x14__ (X14, Webcoin [WEB])
- * ✓ __x15__ (RadianceCoin [RCE])
- * ✓ __cryptonight__ (Bytecoin [BCN], Monero)
- * ✓ __fresh__ (FreshCoin)
 
-#### Implemented, but untested
- * ? keccak (Maxcoin  HelixCoin, CryptoMeth, Galleon, 365coin, Slothcoin, BitcointalkCoin)
- * ? quark (Quarkcoin)
- * ? skein (Skeincoin, Myriadcoin)
- * ? shavite3 (INKcoin)
- * ? blake (Blakecoin)
+| `-a` | Coins | Status |
+|------|-------|--------|
+| `sha256d` | Bitcoin, Bitcoin Cash, Peercoin, ... | works |
+| `scrypt` | Litecoin, Dogecoin | works |
+| `x11` | Dash | works |
+| `blake` | Blakecoin, and the coins merge-mined with it (Photon, Electron, Universal Molecule, Lithium, BlakeBitcoin) | works (fixed in this fork) |
+| `skein` | DigiByte (Skein) | works (fixed in this fork) |
+| `cryptonight` | Bytecoin and other coins on the original CryptoNight | works (fixed in this fork) |
+| `scrypt:N` | scrypt with N other than 1024 (Vertcoin used it until 2014) | legacy |
+| `keccak` | Maxcoin | legacy |
+| `quark` | Quarkcoin | legacy |
+| `x13`, `x14`, `x15` | Sherlockcoin, X14coin, RadianceCoin, ... | legacy |
+| `fresh` | FreshCoin | legacy |
+| `shavite3` | INKcoin | legacy |
 
-#### Planned support for
- * *scrypt-jane* (YaCoin, CopperBars, Pennies, Tickets, etc..)
- * *qubit* (Qubitcoin, Myriadcoin)
- * *groestl* (Groestlcoin)
+**Works**: tested end to end, from the pool's messages to the shares or
+blocks it accepts. **Legacy**: the hashing is tested, but we know of no
+active network that still uses the algorithm; it is kept for completeness.
 
-Dependencies
-============
-* libcurl			http://curl.haxx.se/libcurl/
-* jansson			https://github.com/akheron/jansson (2.7 or newer)
+Bitcoin, Litecoin, Dogecoin, Dash and DigiByte are mined with ASICs or GPUs
+today, so a CPU earns next to nothing on them. They are useful for testing
+and for testnets.
+
+Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
+and Myriad moved to other algorithms too. Planned: RandomX, DigiByte's
+Qubit and Odocrypt, NeoScrypt, Verthash, Argon2d and Yescrypt.
+
+Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
+broken) and the unused scrypt-jane sources.
 
 Download
 ========
-* Binary releases: https://github.com/LucasJones/cpuminer-multi/releases
-* Git tree:   https://github.com/LucasJones/cpuminer-multi
-  * Clone with `git clone https://github.com/LucasJones/cpuminer-multi`
 
-Build
+* Source: `git clone https://github.com/Justinwold88/cpuminer-multi`
+* Windows: every build on GitHub Actions keeps `minerd.exe` with the DLLs it
+  needs, under *Actions → build → the latest run → Artifacts*.
+
+Building
+========
+
+You need a C compiler, GNU make, autoconf, automake, pkg-config,
+[libcurl](https://curl.se/libcurl/) and [jansson](https://github.com/akheron/jansson) 2.7 or newer.
+
+Then, in the source directory:
+
+    ./autogen.sh
+    ./configure CFLAGS="-O2 -march=native"
+    make
+    make check
+
+`-march=native` makes the fastest code for the machine you build on, but the
+binary may not run on other CPUs; leave it out for a portable binary.
+`make check` runs the known-answer tests: every algorithm must reproduce
+reference hashes and find a planted share. `make install` installs `minerd`
+and its man page.
+
+#### Linux
+
+Install the tools and libraries first:
+
+* Debian, Ubuntu: `sudo apt install build-essential autoconf automake pkg-config libcurl4-openssl-dev libjansson-dev`
+* Fedora: `sudo dnf install gcc make autoconf automake pkgconf-pkg-config libcurl-devel jansson-devel`
+* Arch: `sudo pacman -S --needed base-devel curl jansson`
+
+#### macOS
+
+With [Homebrew](https://brew.sh): `brew install autoconf automake pkgconf jansson`.
+macOS comes with libcurl. This works on Apple Silicon and on Intel Macs.
+
+#### Windows
+
+Use [MSYS2](https://www.msys2.org). In its **UCRT64** shell:
+
+    pacman -S --needed autoconf automake make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-jansson mingw-w64-ucrt-x86_64-pkgconf
+
+Then build as above. To run `minerd.exe` outside the MSYS2 shell, copy the DLLs
+it needs next to it:
+
+    ldd minerd.exe | awk '$3 ~ /\/ucrt64\// { print $3 }' | xargs cp -t .
+
+#### Docker
+
+    docker build -t cpuminer-multi .
+    docker run --rm cpuminer-multi -a sha256d -o stratum+tcp://POOL:PORT -u USER -p PASS
+
+The image is built for the platform it is built on (amd64 or arm64). For the
+fastest code on one machine, build there with
+`--build-arg CFLAGS="-O2 -march=native"`.
+
+#### Notes by architecture
+
+* **x86-64**: uses SSE2, AVX, AVX2 and XOP assembly for scrypt and SHA-256d
+  when both the CPU and the operating system support them (Linux 2.6.30,
+  FreeBSD 9.1, OS X 10.6.8, Windows 7 SP1 and later), and AES-NI for
+  CryptoNight. configure warns if the assembler lacks an instruction set;
+  the miner still builds without it.
+* **32-bit x86**: SSE2 assembly for scrypt and SHA-256d, picked at run time.
+* **ARM64** (Raspberry Pi 3 and later with a 64-bit OS, Apple Silicon, AWS
+  Graviton): portable C code.
+* **32-bit ARM**: assembly for ARMv5E and later, chosen when compiling. Add
+  `-mfpu=neon` to `CFLAGS` to use NEON.
+* `./configure --disable-assembly` builds everything from portable C.
+* AIX: export `OBJECT_MODE=64` for a 64-bit build. Long options are only
+  available through a configuration file.
+
+Usage
 =====
 
-#### Basic *nix build instructions:
- * ./autogen.sh	# only needed if building from git repo
- * ./configure CFLAGS="*-march=native*"
-   * # Use -march=native if building for a single machine
- * make
+Run `minerd --help` for all the options, or see `man minerd`.
 
-#### Notes for AIX users:
- * To build a 64-bit binary, export OBJECT_MODE=64
- * GNU-style long options are not supported, but are accessible via configuration file
+#### Pool mining (stratum)
 
-#### Basic Windows build instructions, using MinGW:
- * Install MinGW and the MSYS Developer Tool Kit (http://www.mingw.org/)
-   * Make sure you have mstcpip.h in MinGW\include
- * If using MinGW-w64, install pthreads-w64
- * Install libcurl devel (http://curl.haxx.se/download.html)
-   * Make sure you have libcurl.m4 in MinGW\share\aclocal
-   * Make sure you have curl-config in MinGW\bin
- * In the MSYS shell, run:
-   * ./autogen.sh	# only needed if building from git repo
-   * LIBCURL="-lcurldll" ./configure CFLAGS="*-march=native*"
-     * # Use -march=native if building for a single machine
-   * make
+    minerd -a scrypt -o stratum+tcp://pool.example.com:3333 -u USER.WORKER -p x
 
-#### Architecture-specific notes:
- * ARM:
-   * No runtime CPU detection. The miner can take advantage of some instructions specific to ARMv5E and later processors, but the decision whether to use them is made at compile time, based on compiler-defined macros.
-   * To use NEON instructions, add "-mfpu=neon" to CFLAGS.
- * x86:
-   * The miner checks for SSE2 instructions support at runtime, and uses them if they are available.
- * x86-64:	
-   * The miner can take advantage of AVX, AVX2 and XOP instructions, but only if both the CPU and the operating system support them.
-     * Linux supports AVX starting from kernel version 2.6.30.
-     * FreeBSD supports AVX starting with 9.1-RELEASE.
-     * Mac OS X added AVX support in the 10.6.8 update.
-     * Windows supports AVX starting from Windows 7 SP1 and Windows Server 2008 R2 SP1.
-   * The configure script outputs a warning if the assembler doesn't support some instruction sets. In that case, the miner can still be built, but unavailable optimizations are left off.
+`-t N` sets the number of threads (default: one per processor). If the pool
+expresses difficulty for a different "difficulty 1" than the miner expects,
+`-f N` divides the pool's difficulty by N.
 
-Usage instructions
-==================
-Run "minerd --help" to see options.
+#### Solo mining (getblocktemplate)
 
-### Connecting through a proxy
+Mine against your own node for any Bitcoin-style coin that uses one of the
+algorithms above. Enable its RPC server (`server=1`, `rpcuser`, `rpcpassword`
+in its configuration file), let it sync, then:
 
-Use the --proxy option.
+    minerd -a sha256d -o http://127.0.0.1:8332 -u RPCUSER -p RPCPASS --coinbase-addr=YOUR_ADDRESS
 
-To use a SOCKS proxy, add a socks4:// or socks5:// prefix to the proxy host  
-Protocols socks4a and socks5h, allowing remote name resolving, are also available since libcurl 7.18.0.
+The reward goes to `--coinbase-addr`. The miner asks the node what output
+script that address pays to (so any address type the node knows works:
+legacy, P2SH, segwit, taproot), and refuses to start if the node says the
+address belongs to another coin or network. `--coinbase-sig=TEXT` adds text to
+your blocks. Long polling, segwit (BIP 141) and the BIP 34 height rule are
+supported. A coin whose node requires a rule this miner does not implement
+(Litecoin's MWEB, for example) is refused with a message: mine it through a
+pool. Dash-style masternode payments are not supported either.
 
-If no protocol is specified, the proxy is assumed to be a HTTP proxy.  
-When the --proxy option is not used, the program honors the http_proxy and all_proxy environment variables.
+Servers that only speak getwork, the protocol getblocktemplate replaced, are
+still supported; `--no-gbt` and `--no-getwork` choose between the two.
 
-Donations
-=========
-Donations for the work done in this fork are accepted at
-* MRO: `472haywQKoxFzf7asaQ4XKBc2foAY4ezk8HiN63ifW4iAbJiLnfmJfhHSR9XmVKw2WYPnszJV9MEHj9Z5WMK9VCNHaGLDmJ`
-* BTC: `139QWoktddChHsZMWZFxmBva4FM96X2dhE`
+#### CryptoNight
+
+    minerd -a cryptonight -o stratum+tcp://pool.example.com:3333 -u WALLET_ADDRESS -p x
+
+#### Benchmark
+
+    minerd -a x11 --benchmark
+
+#### Configuration file
+
+`-c FILE` reads options from a JSON file that maps long option names to their
+values; see [example-cfg.json](example-cfg.json).
+
+#### Connecting through a proxy
+
+Use the `--proxy` option. For a SOCKS proxy, add a `socks4://` or `socks5://`
+prefix to the proxy host; `socks4a://` and `socks5h://` resolve host names
+through the proxy. Without a prefix, the proxy is taken to be an HTTP proxy.
+Without `--proxy`, the `http_proxy` and `all_proxy` environment variables are
+honoured.
 
 Credits
 =======
-CPUMiner-multi was forked from pooler's CPUMiner, and has been developed by Lucas Jones.
-* [tpruvot](https://github.com/tpruvot) added some features and recent SHA3 based algorythmns
+
+cpuminer-multi was forked from pooler's cpuminer and developed by Lucas Jones.
+
+* [tpruvot](https://github.com/tpruvot) added features and the SHA-3 based algorithms
 * [Wolf9466](https://github.com/wolf9466) helped with Intel AES-NI support for CryptoNight
+* getblocktemplate support is based on pooler's cpuminer 2.5
+
+Lucas Jones accepted donations for his work on cpuminer-multi at:
+
+* XMR: `472haywQKoxFzf7asaQ4XKBc2foAY4ezk8HiN63ifW4iAbJiLnfmJfhHSR9XmVKw2WYPnszJV9MEHj9Z5WMK9VCNHaGLDmJ`
+* BTC: `139QWoktddChHsZMWZFxmBva4FM96X2dhE`
 
 License
 =======
-GPLv2.  See COPYING for details.
+
+GPLv2 or later. See [COPYING](COPYING) for details.

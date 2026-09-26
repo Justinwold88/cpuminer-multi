@@ -1,25 +1,35 @@
-.TH MINERD 1 "February 2014" "cpuminer 2.3.3"
+.TH MINERD 1 "September 2026" "cpuminer-multi 1.1.0"
 .SH NAME
-minerd \- CPU miner for Bitcoin and Litecoin
+minerd \- multi-algorithm CPU miner
 .SH SYNOPSIS
 .B minerd
 [\fIOPTION\fR]...
 .SH DESCRIPTION
 .B minerd
-is a multi-threaded CPU miner for Bitcoin, Litecoin and other cryptocurrencies.
-It supports the getwork mining protocol as well as the Stratum mining protocol.
+is a multi-threaded CPU miner for Bitcoin, Litecoin and other
+cryptocurrencies, with many proof-of-work algorithms (see \fB\-a\fR).
+It mines for a pool over the Stratum protocol, or solo against a coin's own
+node over the getblocktemplate protocol (BIP 22 and 23).
+It also speaks getwork, the protocol getblocktemplate replaced, and the
+JSON-RPC 2.0 protocol of CryptoNight pools.
 .PP
 In its normal mode of operation, \fBminerd\fR connects to a mining server
 (specified with the \fB\-o\fR option), receives work from it and starts hashing.
 As soon as a solution is found, it is submitted to the same mining server,
 which can accept or reject it.
-When using the getwork protocol, \fBminerd\fR can take advantage
-of the long polling extension, if the server supports it;
-in any case, fresh work is fetched as needed.
-When using the Stratum protocol this is not possible,
-and the server is responsible for sending fresh work at least every minute;
-if it fails to do so,
-\fBminerd\fR may drop the connection and try reconnecting again.
+Over HTTP, \fBminerd\fR takes advantage of long polling if the server
+supports it; in any case, fresh work is fetched as needed.
+With Stratum the server is responsible for sending fresh work at least
+every two minutes; if it fails to do so, \fBminerd\fR stops hashing until it
+does, and reconnects if the connection is lost.
+.PP
+When solo mining with getblocktemplate, \fBminerd\fR builds the coinbase
+transaction itself, paying the block reward to the address given with
+\fB\-\-coinbase\-addr\fR, with the block height (BIP 34) and, where segwit
+is active, the witness commitment (BIP 141).
+It asks the node (validateaddress) which output script pays to that address.
+A node that requires a rule \fBminerd\fR does not implement
+(such as Litecoin's MWEB) is refused with a message.
 .PP
 By default, \fBminerd\fR writes all its messages to standard error.
 On systems that have a syslog, the \fB\-\-syslog\fR option can be used
@@ -41,22 +51,23 @@ minerd \-o stratum+tcp://example.com:3333 \-O foo:bar
 .RE
 .fi
 .PP
-To mine to a local Bitcoin testnet instance running on port 18332,
-authenticating with username "rpcuser" and password "rpcpass":
+To mine solo on a local Bitcoin testnet node whose RPC server listens on
+port 18332, with RPC user name "rpcuser" and password "rpcpass",
+paying the reward to a testnet address:
 .PP
 .nf
 .RS
-minerd \-a sha256d \-o http://localhost:18332 \-O rpcuser:rpcpass
+minerd \-a sha256d \-o http://localhost:18332 \-O rpcuser:rpcpass \e
+    \-\-coinbase\-addr=tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx
 .RE
 .fi
 .PP
-To connect to a Litecoin P2Pool node running on my.server on port 9327,
-mining in the background and having output sent to the syslog facility,
-omitting the per-thread hashmeter output:
+To mine CryptoNight for a pool, in the background, sending the output to
+the syslog facility and omitting the per-thread hashmeter output:
 .PP
 .nf
 .RS
-minerd \-BSq \-o http://my.server:9327
+minerd \-BSq \-a cryptonight \-o stratum+tcp://example.com:3333 \-u WALLET \-p x
 .RE
 .fi
 .SH OPTIONS
@@ -66,15 +77,48 @@ Set the hashing algorithm to use.
 Default is scrypt.
 Possible values are:
 .RS 11
-.TP 10
+.TP 13
 .B scrypt
-scrypt(1024, 1, 1) (used by Litecoin)
+scrypt(1024, 1, 1) (Litecoin, Dogecoin)
 .TP
 .B scrypt:\fIN\fR
 scrypt(\fIN\fR, 1, 1) (\fIN\fR must be a power of 2 greater than 1)
 .TP
 .B sha256d
-SHA-256d (used by Bitcoin)
+SHA-256d (Bitcoin and many others)
+.TP
+.B x11
+X11 (Dash)
+.TP
+.B blake
+BLAKE-256 with 8 rounds (Blakecoin, and the coins merge-mined with it)
+.TP
+.B skein
+SHA-256 of Skein-512 (DigiByte)
+.TP
+.B cryptonight
+CryptoNight, the original version (Bytecoin)
+.TP
+.B keccak
+Keccak-256 (Maxcoin)
+.TP
+.B quark
+Quark (Quarkcoin)
+.TP
+.B shavite3
+SHAvite-3 (INKcoin)
+.TP
+.B fresh
+Fresh (FreshCoin)
+.TP
+.B x13
+X13
+.TP
+.B x14
+X14
+.TP
+.B x15
+X15
 .RE
 .TP
 \fB\-\-benchmark\fR
@@ -86,6 +130,16 @@ Run in the background as a daemon.
 \fB\-\-cert\fR=\fIFILE\fR
 Set an SSL certificate to use with the mining server.
 Only supported when using the HTTPS protocol.
+.TP
+\fB\-\-coinbase\-addr\fR=\fIADDRESS\fR
+Solo mining (getblocktemplate): the address to pay the block reward to.
+Any address type the node knows can be used; for nodes that cannot say
+which output script an address pays to, legacy (base58), segwit (bech32)
+and taproot (bech32m) addresses are decoded by \fBminerd\fR.
+.TP
+\fB\-\-coinbase\-sig\fR=\fITEXT\fR
+Solo mining (getblocktemplate): text to include in the coinbase of the
+blocks found.
 .TP
 \fB\-c\fR, \fB\-\-config\fR=\fIFILE\fR
 Load options from a configuration file.
@@ -106,8 +160,20 @@ Sample configuration file:
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug output.
 .TP
+\fB\-f\fR, \fB\-\-diff\-factor\fR=\fIN\fR
+Divide the share difficulty the pool sets by \fIN\fR,
+for pools that express difficulty relative to another "difficulty 1"
+than \fBminerd\fR. Default is 1.
+.TP
 \fB\-h\fR, \fB\-\-help\fR
 Print a help message and exit.
+.TP
+\fB\-\-no\-gbt\fR
+Do not use getblocktemplate (use getwork).
+.TP
+\fB\-\-no\-getwork\fR
+Do not fall back to getwork when the server does not support
+getblocktemplate.
 .TP
 \fB\-\-no\-longpoll\fR
 Do not use long polling.
@@ -144,7 +210,7 @@ Set the maximum number of times to retry if a network call fails.
 If not specified, the miner will retry indefinitely.
 .TP
 \fB\-R\fR, \fB\-\-retry\-pause\fR=\fISECONDS\fR
-Set how long to wait between retries. Default is 30 seconds.
+Set how long to wait between retries. Default is 10 seconds.
 .TP
 \fB\-s\fR, \fB\-\-scantime\fR=\fISECONDS\fR
 Set an upper bound on the time the miner can go without fetching fresh work.
@@ -195,7 +261,9 @@ Sets the proxy server to use if no protocol-specific proxy is set.
 Using an environment variable to set the proxy has the same effect as
 using the \fB\-x\fR option.
 .SH AUTHOR
-Most of the code in the current version of minerd was written by
+Most of the code in minerd was written by
 Pooler <pooler@litecoinpool.org> with contributions from others.
+The multi-algorithm version was started by Lucas Jones, with algorithms
+added by Tanguy Pruvot and others; see the AUTHORS file.
 
 The original minerd was written by Jeff Garzik <jeff@garzik.org>.

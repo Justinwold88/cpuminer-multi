@@ -1,3 +1,35 @@
+Version multi 1.1.0 (unreleased)
+
+Algorithms
+- blake: shares are now valid for Blakecoin and the coins merge-mined
+  with it (their transaction ids are single SHA-256).
+- skein: shares are checked against the real target (DigiByte).
+- cryptonight: the whole job blob is hashed (pools send 76-byte and
+  longer blobs), with 64-bit share targets; works over stratum and HTTP.
+- keccak and all the scan loops check shares against the real target.
+- Removed heavy (Heavycoin) and the unused scrypt-jane sources.
+
+Mining
+- Solo mining with getblocktemplate (--coinbase-addr, --coinbase-sig):
+  segwit, BIP 34, long polling; getwork kept as a fallback (--no-gbt,
+  --no-getwork).
+- Stratum: every message from the pool is validated; no more mining a
+  stale job after a reconnect; jobs re-sent with a new id or difficulty
+  are followed; blank keep-alive lines are accepted.
+- The miner no longer dies (SIGPIPE) when a pool drops the connection
+  while shares are being sent; shares that cannot be sent are dropped
+  instead of retried forever; at most 256 shares wait to be sent.
+- -f, --diff-factor divides the pool's share difficulty.
+
+Platforms and building
+- Builds and passes its known-answer tests ("make check") on Linux
+  (x86-64, 32-bit x86, arm64, 32-bit ARM), macOS (arm64 and x86-64) and
+  Windows (MSYS2), with gcc and clang, and with --disable-assembly.
+- Requires jansson 2.7 or newer (the bundled 1.x copy is gone) and no
+  longer needs OpenSSL.
+- GitHub Actions CI replaces Travis CI; the Dockerfile builds this tree.
+- Fixed undefined behaviour found with AddressSanitizer and UBSan.
+
 Version multi 1.0.4 (Tanguy Pruvot)
 
 - Add x13 x14 and x15 algos (Sherlockcoin, X14Coin, Webcoin..)
