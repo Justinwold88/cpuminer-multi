@@ -34,3 +34,8 @@ mingw32-config.cache
 */.dirstamp
 
 *.iml
+tests/kat
+tests/kat.exe
+tests/*.log
+tests/*.trs
+test-suite.log

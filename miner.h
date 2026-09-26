@@ -153,6 +153,7 @@ extern int scanhash_sha256d(int thr_id, uint32_t *pdata, const uint32_t *ptarget
                             uint32_t max_nonce, uint64_t *hashes_done);
 
 extern unsigned char *scrypt_buffer_alloc(int N);
+extern void scrypt_hash(void *output, const void *input, int N);
 extern int scanhash_scrypt(int thr_id, uint32_t *pdata,
                             unsigned char *scratchbuf, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done, int N);
@@ -195,6 +196,21 @@ extern int scanhash_x15(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 
 extern void cryptonight_hash(void* output, const void* input, size_t input_len);
+
+/* Single-shot proof-of-work hashes of an 80-byte block header (header byte
+ * order in, 32-byte hash out). The scan loops call these per nonce; tests
+ * and share checks call them directly. quarkhash() and blakehash() need
+ * init_quarkhash_contexts() / init_blakehash_contexts() to run first. */
+extern void keccakhash(void *state, const void *input);
+extern void quarkhash(void *state, const void *input);
+extern void skeinhash(void *state, const void *input);
+extern void inkhash(void *state, const void *input);
+extern void blakehash(void *state, const void *input);
+extern void freshhash(void *output, const void *input, uint32_t len);
+extern void x11hash(void *output, const void *input);
+extern void x13hash(void *output, const void *input);
+extern void x14hash(void *output, const void *input);
+extern void x15hash(void *output, const void *input);
 
 extern int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);

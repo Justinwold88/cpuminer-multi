@@ -80,3 +80,9 @@ minerd_SOURCES	= elist.h \
 
 minerd_LDFLAGS	= $(PTHREAD_FLAGS)
 minerd_LDADD	= libalgos.a $(LIBCURL_LIBS) $(JANSSON_LIBS) $(PTHREAD_LIBS) $(WS2_LIBS)
+
+# "make check": known-answer tests for every algorithm
+check_PROGRAMS	= tests/kat
+tests_kat_SOURCES = tests/kat.c
+tests_kat_LDADD	= libalgos.a $(PTHREAD_LIBS)
+TESTS		= tests/kat

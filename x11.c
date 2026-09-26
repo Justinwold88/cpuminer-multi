@@ -18,7 +18,7 @@
 #include "sha3/sph_echo.h"
 
 
-void x11_hash(char* output, const char* input)
+void x11hash(void *output, const void *input)
 {
     sph_blake512_context     ctx_blake;
     sph_bmw512_context       ctx_bmw;
@@ -114,7 +114,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (((hash64[7]&0xFFFFFFFF)==0) && 
 					fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
@@ -127,7 +127,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (((hash64[7]&0xFFFFFFF0)==0) && 
 					fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
@@ -140,7 +140,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (((hash64[7]&0xFFFFFF00)==0) && 
 					fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
@@ -153,7 +153,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (((hash64[7]&0xFFFFF000)==0) && 
 					fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
@@ -167,7 +167,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (((hash64[7]&0xFFFF0000)==0) && 
 					fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
@@ -181,7 +181,7 @@ int scanhash_x11(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 		do {
 			pdata[19] = ++n;
 			be32enc(&endiandata[19], n); 
-			x11_hash((char*) hash64, (const char*) endiandata);
+			x11hash(hash64, endiandata);
 			if (fulltest(hash64, ptarget)) {
 				*hashes_done = n - first_nonce + 1;
 				return true;
