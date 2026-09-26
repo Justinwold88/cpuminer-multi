@@ -1033,78 +1033,103 @@ static bool submit_work(struct thr_info *thr, const struct work *work_in) {
     return false;
 }
 
-static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
-    unsigned char merkle_root[64];
+/* Build the next piece of work from the current stratum job. Returns false,
+ * leaving *work alone, when there is no job (not connected yet, or the
+ * connection was lost). */
+static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
+    unsigned char merkle_root[64], *xnonce2;
+    char *job_id;
+    double diff;
     int i;
 
     pthread_mutex_lock(&sctx->work_lock);
 
     if (jsonrpc_2) {
+        job_id = sctx->work.job_id ? strdup(sctx->work.job_id) : NULL;
+        if (!job_id) {
+            pthread_mutex_unlock(&sctx->work_lock);
+            return false;
+        }
         free(work->job_id);
+        free(work->xnonce2);
         memcpy(work, &sctx->work, sizeof(struct work));
-        work->job_id = strdup(sctx->work.job_id);
+        work->job_id = job_id;
+        work->xnonce2 = NULL;
+        work->xnonce2_len = 0;
         pthread_mutex_unlock(&sctx->work_lock);
-    } else {
-        free(work->job_id);
-        work->job_id = strdup(sctx->job.job_id);
-        work->xnonce2_len = sctx->xnonce2_size;
-        work->xnonce2 = realloc(work->xnonce2, sctx->xnonce2_size);
-        memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
-
-        /* Generate merkle root. Bitcoin-derived coins identify the
-         * coinbase transaction by double SHA-256; Blakecoin (and the coins
-         * merge-mined with it) and Maxcoin use a single SHA-256. */
-        if (opt_algo == ALGO_BLAKE || opt_algo == ALGO_KECCAK)
-            sha256_hash(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
-        else
-            sha256d(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
-        for (i = 0; i < sctx->job.merkle_count; i++) {
-            memcpy(merkle_root + 32, sctx->job.merkle[i], 32);
-            sha256d(merkle_root, merkle_root, 64);
-        }
-
-        /* Increment extranonce2 */
-        for (i = 0; i < sctx->xnonce2_size && !++sctx->job.xnonce2[i]; i++)
-            ;
-
-        /* Assemble block header */
-        memset(work->data, 0, 128);
-        work->data[0] = le32dec(sctx->job.version);
-        for (i = 0; i < 8; i++)
-            work->data[1 + i] = le32dec((uint32_t *) sctx->job.prevhash + i);
-        for (i = 0; i < 8; i++)
-            work->data[9 + i] = be32dec((uint32_t *) merkle_root + i);
-        work->data[17] = le32dec(sctx->job.ntime);
-        work->data[18] = le32dec(sctx->job.nbits);
-        work->data[20] = 0x80000000;
-        work->data[31] = 0x00000280;
-
-        pthread_mutex_unlock(&sctx->work_lock);
-
-        if (opt_debug) {
-            char *xnonce2str = bin2hex(work->xnonce2, work->xnonce2_len);
-            applog(LOG_DEBUG, "DEBUG: job_id='%s' extranonce2=%s ntime=%08x",
-                    work->job_id, xnonce2str, swab32(work->data[17]));
-            free(xnonce2str);
-        }
-
-        /* Pools express share difficulty relative to a per-algorithm
-         * "difficulty 1" target */
-        switch (opt_algo) {
-        case ALGO_SCRYPT:
-            diff_to_target(work->target, sctx->job.diff / (65536.0 * opt_diff_factor));
-            break;
-        case ALGO_FRESH:
-            diff_to_target(work->target, sctx->job.diff / (256.0 * opt_diff_factor));
-            break;
-        case ALGO_KECCAK:
-            diff_to_target(work->target, sctx->job.diff / (128.0 * opt_diff_factor));
-            break;
-        default:
-            diff_to_target(work->target, sctx->job.diff / opt_diff_factor);
-            break;
-        }
+        return true;
     }
+
+    job_id = sctx->job.job_id ? strdup(sctx->job.job_id) : NULL;
+    xnonce2 = job_id ? malloc(sctx->xnonce2_size) : NULL;
+    if (!xnonce2) {
+        pthread_mutex_unlock(&sctx->work_lock);
+        free(job_id);
+        return false;
+    }
+    free(work->job_id);
+    work->job_id = job_id;
+    free(work->xnonce2);
+    work->xnonce2 = xnonce2;
+    work->xnonce2_len = sctx->xnonce2_size;
+    memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
+
+    /* Generate merkle root. Bitcoin-derived coins identify the
+     * coinbase transaction by double SHA-256; Blakecoin (and the coins
+     * merge-mined with it) and Maxcoin use a single SHA-256. */
+    if (opt_algo == ALGO_BLAKE || opt_algo == ALGO_KECCAK)
+        sha256_hash(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
+    else
+        sha256d(merkle_root, sctx->job.coinbase, (int) sctx->job.coinbase_size);
+    for (i = 0; i < sctx->job.merkle_count; i++) {
+        memcpy(merkle_root + 32, sctx->job.merkle[i], 32);
+        sha256d(merkle_root, merkle_root, 64);
+    }
+
+    /* Increment extranonce2 */
+    for (i = 0; i < sctx->xnonce2_size && !++sctx->job.xnonce2[i]; i++)
+        ;
+
+    /* Assemble block header */
+    memset(work->data, 0, 128);
+    work->data[0] = le32dec(sctx->job.version);
+    for (i = 0; i < 8; i++)
+        work->data[1 + i] = le32dec((uint32_t *) sctx->job.prevhash + i);
+    for (i = 0; i < 8; i++)
+        work->data[9 + i] = be32dec((uint32_t *) merkle_root + i);
+    work->data[17] = le32dec(sctx->job.ntime);
+    work->data[18] = le32dec(sctx->job.nbits);
+    work->data[20] = 0x80000000;
+    work->data[31] = 0x00000280;
+    diff = sctx->job.diff;
+
+    pthread_mutex_unlock(&sctx->work_lock);
+
+    if (opt_debug) {
+        char *xnonce2str = bin2hex(work->xnonce2, work->xnonce2_len);
+        applog(LOG_DEBUG, "DEBUG: job_id='%s' extranonce2=%s ntime=%08x",
+                work->job_id, xnonce2str, swab32(work->data[17]));
+        free(xnonce2str);
+    }
+
+    /* Pools express share difficulty relative to a per-algorithm
+     * "difficulty 1" target */
+    work->targetdiff = diff;
+    switch (opt_algo) {
+    case ALGO_SCRYPT:
+        diff_to_target(work->target, diff / (65536.0 * opt_diff_factor));
+        break;
+    case ALGO_FRESH:
+        diff_to_target(work->target, diff / (256.0 * opt_diff_factor));
+        break;
+    case ALGO_KECCAK:
+        diff_to_target(work->target, diff / (128.0 * opt_diff_factor));
+        break;
+    default:
+        diff_to_target(work->target, diff / opt_diff_factor);
+        break;
+    }
+    return true;
 }
 
 /* The nonce is data[19] of a block header, but 4 unaligned bytes at offset
@@ -1133,6 +1158,19 @@ static bool work_differs(const struct work *a, const struct work *b)
     if (a->data_size != b->data_size || a->data_size < RPC2_MIN_BLOB)
         return true;
     return memcmp(x, y, 39) || memcmp(x + 43, y + 43, a->data_size - 43);
+}
+
+static void work_sync_job(struct work *w, const struct work *g)
+{
+    memcpy(w->target, g->target, sizeof(w->target));
+    w->targetdiff = g->targetdiff;
+    if (g->job_id && (!w->job_id || strcmp(w->job_id, g->job_id))) {
+        char *id = strdup(g->job_id);
+        if (id) {
+            free(w->job_id);
+            w->job_id = id;
+        }
+    }
 }
 
 static void *miner_thread(void *userdata) {
@@ -1177,11 +1215,20 @@ static void *miner_thread(void *userdata) {
         int rc;
 
         if (have_stratum) {
-            while (!jsonrpc_2 && time(NULL) >= g_work_time + 120)
+            /* wait for a job: while (re)connecting g_work_time is 0, and a
+             * Bitcoin-style job older than 2 minutes is considered stale
+             * (CryptoNight pools can go much longer between jobs) */
+            while (time(NULL) >= g_work_time + 120
+                    && (!jsonrpc_2 || !g_work_time))
                 sleep(1);
             pthread_mutex_lock(&g_work_lock);
-            if (work_nonce(&work) >= end_nonce && !work_differs(&work, &g_work))
-                stratum_gen_work(&stratum, &g_work);
+            if (work_nonce(&work) >= end_nonce && !work_differs(&work, &g_work)
+                    && !stratum_gen_work(&stratum, &g_work)) {
+                /* nonce range used up and the connection just dropped */
+                pthread_mutex_unlock(&g_work_lock);
+                sleep(1);
+                continue;
+            }
         } else {
             /* obtain new work from internal workio thread */
             pthread_mutex_lock(&g_work_lock);
@@ -1211,8 +1258,13 @@ static void *miner_thread(void *userdata) {
             work_free(&work);
             work_copy(&work, &g_work);
             work_set_nonce(&work, 0xffffffffU / opt_n_threads * thr_id);
-        } else
+        } else {
+            /* same header: carry on from the last nonce, but under the
+             * current job id and share target (a pool may re-send a job
+             * with a new id or difficulty and an identical header) */
+            work_sync_job(&work, &g_work);
             work_set_nonce(&work, work_nonce(&work) + 1);
+        }
         pthread_mutex_unlock(&g_work_lock);
 
         if (jsonrpc_2 && work.data_size < RPC2_MIN_BLOB) {
@@ -1571,29 +1623,28 @@ static void *stratum_thread(void *userdata) {
             }
         }
 
-        if (jsonrpc_2) {
-            if (stratum.work.job_id
-                    && (!g_work_time
-                            || strcmp(stratum.work.job_id, g_work.job_id))) {
-                pthread_mutex_lock(&g_work_lock);
-                stratum_gen_work(&stratum, &g_work);
+        /* This thread is the only one that changes stratum.job and
+         * stratum.work, so it may read them without stratum.work_lock;
+         * g_work is shared with the miner threads. */
+        if (jsonrpc_2 ? stratum.work.job_id != NULL : stratum.job.job_id != NULL) {
+            bool new_job;
+
+            pthread_mutex_lock(&g_work_lock);
+            if (jsonrpc_2)
+                new_job = !g_work_time || !g_work.job_id
+                        || strcmp(stratum.work.job_id, g_work.job_id);
+            else
+                new_job = !g_work_time || !g_work.job_id
+                        || strcmp(stratum.job.job_id, g_work.job_id)
+                        || stratum.job.diff != g_work.targetdiff;
+            if (new_job && stratum_gen_work(&stratum, &g_work))
                 time(&g_work_time);
-                pthread_mutex_unlock(&g_work_lock);
+            else
+                new_job = false;
+            pthread_mutex_unlock(&g_work_lock);
+            if (new_job && (jsonrpc_2 || stratum.job.clean)) {
                 applog(LOG_INFO, "Stratum detected new block");
                 restart_threads();
-            }
-        } else {
-            if (stratum.job.job_id
-                    && (!g_work_time
-                            || strcmp(stratum.job.job_id, g_work.job_id))) {
-                pthread_mutex_lock(&g_work_lock);
-                stratum_gen_work(&stratum, &g_work);
-                time(&g_work_time);
-                pthread_mutex_unlock(&g_work_lock);
-                if (stratum.job.clean) {
-                    applog(LOG_INFO, "Stratum detected new block");
-                    restart_threads();
-                }
             }
         }
 

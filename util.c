@@ -830,6 +830,16 @@ void stratum_disconnect(struct stratum_ctx *sctx)
 		sctx->sockbuf[0] = '\0';
 	}
 	pthread_mutex_unlock(&sctx->sock_lock);
+
+	/* The next connection may come with a different extranonce1 and
+	 * extranonce2 size, and job ids are only meaningful per connection:
+	 * never mine a job left over from this one. */
+	pthread_mutex_lock(&sctx->work_lock);
+	free(sctx->job.job_id);
+	sctx->job.job_id = NULL;
+	free(sctx->work.job_id);
+	sctx->work.job_id = NULL;
+	pthread_mutex_unlock(&sctx->work_lock);
 }
 
 static const char *get_stratum_session_id(json_t *val)

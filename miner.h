@@ -263,6 +263,7 @@ struct work {
     uint32_t data[32];
     uint32_t target[8];
     size_t data_size;	/* CryptoNight: job blob length in bytes */
+    double targetdiff;	/* stratum: pool difficulty the target came from */
 
     char *job_id;
     size_t xnonce2_len;
