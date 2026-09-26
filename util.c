@@ -22,7 +22,7 @@
 #include <jansson.h>
 #include <curl/curl.h>
 #include <time.h>
-#if defined(WIN32)
+#if defined(_WIN32)
 #include <winsock2.h>
 #include <mstcpip.h>
 #else
@@ -257,7 +257,7 @@ static int sockopt_keepalive_cb(void *userdata, curl_socket_t fd,
 	int tcp_keepidle = 50;
 	int tcp_keepintvl = 50;
 
-#ifndef WIN32
+#ifndef _WIN32
 	if (unlikely(setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive,
 		sizeof(keepalive))))
 		return 1;
@@ -277,7 +277,7 @@ static int sockopt_keepalive_cb(void *userdata, curl_socket_t fd,
 		&tcp_keepintvl, sizeof(tcp_keepintvl))))
 		return 1;
 #endif /* __APPLE_CC__ */
-#else /* WIN32 */
+#else /* _WIN32 */
 	struct tcp_keepalive vals;
 	vals.onoff = 1;
 	vals.keepalivetime = tcp_keepidle * 1000;
@@ -286,7 +286,7 @@ static int sockopt_keepalive_cb(void *userdata, curl_socket_t fd,
 	if (unlikely(WSAIoctl(fd, SIO_KEEPALIVE_VALS, &vals, sizeof(vals),
 		NULL, 0, &outputBytes, NULL, NULL)))
 		return 1;
-#endif /* WIN32 */
+#endif /* _WIN32 */
 
 	return 0;
 }
@@ -570,7 +570,7 @@ void diff_to_target(uint32_t *target, double diff)
 	}
 }
 
-#ifdef WIN32
+#ifdef _WIN32
 #define socket_blocks() (WSAGetLastError() == WSAEWOULDBLOCK)
 #else
 #define socket_blocks() (errno == EAGAIN || errno == EWOULDBLOCK)
