@@ -1978,6 +1978,8 @@ static void *miner_thread(void *userdata) {
                 max64 = 0x40LL;
                 break;
             case ALGO_FRESH:
+            case ALGO_QUARK:
+            case ALGO_X11:
                 max64 = 0x3ffff;
                 break;
             case ALGO_X13:
