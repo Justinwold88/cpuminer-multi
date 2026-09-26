@@ -223,20 +223,21 @@ static char const usage[] =
 Usage: " PROGRAM_NAME " [OPTIONS]\n\
 Options:\n\
   -a, --algo=ALGO       specify the algorithm to use\n\
-                          scrypt       scrypt(1024, 1, 1) (default)\n\
+                          scrypt       scrypt(1024, 1, 1): Litecoin, Dogecoin\n\
+                                         (default)\n\
                           scrypt:N     scrypt(N, 1, 1)\n\
-                          sha256d      SHA-256d\n\
-                          keccak       Keccak\n\
+                          sha256d      SHA-256d: Bitcoin and many others\n\
+                          x11          X11: Dash\n\
+                          blake        BLAKE-256, 8 rounds: Blakecoin\n\
+                          skein        SHA-256 of Skein-512: DigiByte\n\
+                          cryptonight  CryptoNight: Bytecoin\n\
+                          keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
-                          skein        Skein\n\
-                          shavite3     Shavite3\n\
-                          blake        Blake\n\
+                          shavite3     SHAvite-3: INKcoin\n\
                           fresh        Fresh\n\
-                          x11          X11\n\
                           x13          X13\n\
                           x14          X14\n\
                           x15          X15\n\
-                          cryptonight  CryptoNight\n\
   -o, --url=URL         URL of mining server: stratum+tcp://HOST:PORT for a\n\
                           pool, http://HOST:PORT for a coin node (solo\n\
                           mining) or a getwork server\n\
@@ -257,7 +258,7 @@ Options:\n\
   -T, --timeout=N       timeout for long polling, in seconds (default: none)\n\
   -s, --scantime=N      upper bound on time spent scanning current work when\n\
                           long polling is unavailable, in seconds (default: 5)\n\
-      --no-longpoll     disable X-Long-Polling support\n\
+      --no-longpoll     disable long polling\n\
       --no-stratum      disable X-Stratum support\n\
       --no-redirect     ignore requests to change the URL of the mining server\n\
   -q, --quiet           disable per-thread hashmeter output\n\
@@ -590,11 +591,11 @@ static bool work_decode(const json_t *val, struct work *work) {
     }
 
     if (unlikely(!jobj_binary(val, "data", work->data, sizeof(work->data)))) {
-        applog(LOG_ERR, "JSON inval data");
+        applog(LOG_ERR, "getwork: invalid data");
         goto err_out;
     }
     if (unlikely(!jobj_binary(val, "target", work->target, sizeof(work->target)))) {
-        applog(LOG_ERR, "JSON inval target");
+        applog(LOG_ERR, "getwork: invalid target");
         goto err_out;
     }
 
@@ -1076,14 +1077,14 @@ bool rpc2_login_decode(const json_t *val) {
 
     json_t *res = json_object_get(val, "result");
     if(!res) {
-        applog(LOG_ERR, "JSON invalid result");
+        applog(LOG_ERR, "JSON-RPC 2.0 login: no result");
         goto err_out;
     }
 
     json_t *tmp;
     tmp = json_object_get(res, "id");
     if(!tmp) {
-        applog(LOG_ERR, "JSON inval id");
+        applog(LOG_ERR, "JSON-RPC 2.0 login: no session id");
         goto err_out;
     }
     id = json_string_value(tmp);
@@ -1099,7 +1100,7 @@ bool rpc2_login_decode(const json_t *val) {
 
     tmp = json_object_get(res, "status");
     if(!tmp) {
-        applog(LOG_ERR, "JSON inval status");
+        applog(LOG_ERR, "JSON-RPC 2.0 login: no status");
         goto err_out;
     }
     s = json_string_value(tmp);
@@ -1108,7 +1109,7 @@ bool rpc2_login_decode(const json_t *val) {
         goto err_out;
     }
     if(strcmp(s, "OK")) {
-        applog(LOG_ERR, "JSON returned status \"%s\"", s);
+        applog(LOG_ERR, "JSON-RPC 2.0 login: status \"%s\"", s);
         return false;
     }
 
