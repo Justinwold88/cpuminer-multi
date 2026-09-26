@@ -2731,19 +2731,52 @@ static void parse_cmdline(int argc, char *argv[]) {
 }
 
 #ifndef _WIN32
-static void signal_handler(int sig) {
-    switch (sig) {
-    case SIGHUP:
-        applog(LOG_INFO, "SIGHUP received");
-        break;
-    case SIGINT:
-        applog(LOG_INFO, "SIGINT received, exiting");
-        exit(0);
-        break;
-    case SIGTERM:
-        applog(LOG_INFO, "SIGTERM received, exiting");
-        exit(0);
-        break;
+/*
+ * Signals are blocked in every thread and taken here with sigwait(), in an
+ * ordinary thread: the old signal handler called applog() (which takes a
+ * mutex) and exit(), neither of which may be used in a signal handler; a
+ * signal arriving while a thread held the log lock deadlocked the miner.
+ */
+static sigset_t handled_signals;
+
+static void *signal_thread(void *userdata) {
+    int sig;
+
+    (void) userdata;
+    for (;;) {
+        if (sigwait(&handled_signals, &sig))
+            continue;
+        switch (sig) {
+        case SIGHUP:
+            applog(LOG_INFO, "SIGHUP received");
+            break;
+        case SIGINT:
+            applog(LOG_INFO, "SIGINT received, exiting");
+            exit(0);
+        case SIGTERM:
+            applog(LOG_INFO, "SIGTERM received, exiting");
+            exit(0);
+        }
+    }
+    return NULL;
+}
+
+/* Call before starting any other thread, so that they all inherit the
+ * blocked signal mask. */
+static void start_signal_thread(void) {
+    pthread_t pth;
+
+    sigemptyset(&handled_signals);
+    sigaddset(&handled_signals, SIGINT);
+    sigaddset(&handled_signals, SIGTERM);
+    /* a daemon survives its terminal closing; in the foreground SIGHUP
+     * keeps its default action */
+    if (opt_background)
+        sigaddset(&handled_signals, SIGHUP);
+    pthread_sigmask(SIG_BLOCK, &handled_signals, NULL);
+    if (pthread_create(&pth, NULL, signal_thread, NULL)) {
+        applog(LOG_ERR, "signal thread create failed");
+        pthread_sigmask(SIG_UNBLOCK, &handled_signals, NULL);
     }
 }
 #endif
@@ -2812,10 +2845,8 @@ int main(int argc, char *argv[]) {
 		i = chdir("/");
 		if (i < 0)
 			applog(LOG_ERR, "chdir() failed (errno = %d)", errno);
-		signal(SIGHUP, signal_handler);
-		signal(SIGINT, signal_handler);
-		signal(SIGTERM, signal_handler);
 	}
+	start_signal_thread();
 #endif
 
 #if defined(_WIN32)
