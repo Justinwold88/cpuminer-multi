@@ -196,6 +196,29 @@ static void sha256d_80_swap(uint32_t *hash, const uint32_t *data)
 		hash[i] = swab32(hash[i]);
 }
 
+/* Plain SHA-256 of a short message (len < 512 MiB). */
+void sha256_hash(unsigned char *hash, const unsigned char *data, int len)
+{
+	uint32_t S[16], T[16];
+	int i, r;
+
+	sha256_init(S);
+	for (r = len; r > -9; r -= 64) {
+		if (r < 64)
+			memset(T, 0, 64);
+		memcpy(T, data + len - r, r > 64 ? 64 : (r < 0 ? 0 : r));
+		if (r >= 0 && r < 64)
+			((unsigned char *)T)[r] = 0x80;
+		for (i = 0; i < 16; i++)
+			T[i] = be32dec(T + i);
+		if (r < 56)
+			T[15] = 8 * len;
+		sha256_transform(S, T, 0);
+	}
+	for (i = 0; i < 8; i++)
+		be32enc((uint32_t *)hash + i, S[i]);
+}
+
 void sha256d(unsigned char *hash, const unsigned char *data, int len)
 {
 	uint32_t S[16], T[16];

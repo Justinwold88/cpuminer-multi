@@ -4,41 +4,20 @@
 #include <string.h>
 #include <stdint.h>
 
-#include <openssl/sha.h>
-
 #include "sha3/sph_skein.h"
 
 void skeinhash(void *state, const void *input)
 {
-    sph_skein512_context     ctx_skein;
-    static unsigned char pblank[1];
+    sph_skein512_context ctx_skein;
+    uint32_t hashA[16];
 
-    uint32_t mask = 8;
-    uint32_t zero = 0;
-
-	//these uint512 in the c++ source of the client are backed by an array of uint32
-    uint32_t hashA[16], hashB[16];	
-	
+    /* SHA-256(Skein-512(header)), as used by Skeincoin, Myriadcoin (until
+     * 2019) and DigiByte's Skein algorithm */
     sph_skein512_init(&ctx_skein);
-    sph_skein512 (&ctx_skein, input, 80); //6
-    sph_skein512_close(&ctx_skein, hashA); //7
+    sph_skein512(&ctx_skein, input, 80);
+    sph_skein512_close(&ctx_skein, hashA);
 
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, hashA, 64);
-    SHA256_Final((unsigned char*) hashB, &sha256);
-
-    memcpy(state, hashB, 32);
-	
-
-/*	int ii;
-	printf("result: ");
-	for (ii=0; ii < 32; ii++)
-	{
-		printf ("%.2x",((uint8_t*)state)[ii]);
-	};
-	printf ("\n");	
-*/	
+    sha256_hash(state, (const unsigned char *)hashA, 64);
 }
 
 int scanhash_skein(int thr_id, uint32_t *pdata, const uint32_t *ptarget,

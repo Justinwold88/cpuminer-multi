@@ -132,6 +132,7 @@ static inline void le32enc(void *pp, uint32_t x)
 
 void sha256_init(uint32_t *state);
 void sha256_transform(uint32_t *state, const uint32_t *block, int swap);
+void sha256_hash(unsigned char *hash, const unsigned char *data, int len);
 void sha256d(unsigned char *hash, const unsigned char *data, int len);
 
 #ifdef USE_ASM

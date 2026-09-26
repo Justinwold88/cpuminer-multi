@@ -46,7 +46,6 @@ Dependencies
 ============
 * libcurl			http://curl.haxx.se/libcurl/
 * jansson			http://www.digip.org/jansson/ (jansson is included in-tree)
-* openssl           https://www.openssl.org/
 
 Download
 ========
@@ -75,7 +74,6 @@ Build
  * Install libcurl devel (http://curl.haxx.se/download.html)
    * Make sure you have libcurl.m4 in MinGW\share\aclocal
    * Make sure you have curl-config in MinGW\bin
- * Install openssl devel (https://www.openssl.org/related/binaries.html)
  * In the MSYS shell, run:
    * ./autogen.sh	# only needed if building from git repo
    * LIBCURL="-lcurldll" ./configure CFLAGS="*-march=native*"
