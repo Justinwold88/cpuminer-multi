@@ -908,7 +908,7 @@ char *stratum_recv_line(struct stratum_ctx *sctx)
 		char *line = sctx->sockbuf, *nl;
 		size_t skip = 0;
 
-		/* drop empty lines: some servers send bare newlines as keep-alives */
+		/* drop empty lines: some servers send bare newlines to keep the connection alive */
 		while (line[skip] == '\n' || (line[skip] == '\r' && line[skip + 1] == '\n'))
 			skip += line[skip] == '\r' ? 2 : 1;
 		if (skip)
