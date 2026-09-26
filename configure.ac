@@ -105,7 +105,6 @@ then
   )
 fi
 
-AC_CHECK_LIB(jansson, json_loads, request_jansson=false, request_jansson=true)
 AC_CHECK_LIB([pthread], [pthread_create], PTHREAD_LIBS="-lpthread",
   AC_CHECK_LIB([pthreadGC2], [pthread_create], PTHREAD_LIBS="-lpthreadGC2",
     AC_CHECK_LIB([pthreadGC1], [pthread_create], PTHREAD_LIBS="-lpthreadGC1",
@@ -121,8 +120,8 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([static __uint128_t i = 100;])],
 )
 
 PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.15.2])
+PKG_CHECK_MODULES([JANSSON], [jansson >= 2.7])
 
-AM_CONDITIONAL([WANT_JANSSON], [test x$request_jansson = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([USE_ASM], [test x$enable_assembly != xno])
 AM_CONDITIONAL([ARCH_x86], [test x$have_x86 = xtrue])
@@ -130,21 +129,9 @@ AM_CONDITIONAL([ARCH_x86_64], [test x$have_x86_64 = xtrue])
 AM_CONDITIONAL([ARCH_ARM], [test x$have_arm = xtrue])
 AM_CONDITIONAL([ARCH_AARCH64], [test x$have_aarch64 = xtrue])
 
-if test x$request_jansson = xtrue
-then
-	JANSSON_LIBS="compat/jansson/libjansson.a"
-else
-	JANSSON_LIBS=-ljansson
-fi
-
-AC_SUBST(JANSSON_LIBS)
 AC_SUBST(PTHREAD_FLAGS)
 AC_SUBST(PTHREAD_LIBS)
 AC_SUBST(WS2_LIBS)
 
-AC_CONFIG_FILES([
-	Makefile
-	compat/Makefile
-	compat/jansson/Makefile
-	])
+AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

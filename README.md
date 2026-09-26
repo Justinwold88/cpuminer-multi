@@ -45,7 +45,7 @@ Algorithms
 Dependencies
 ============
 * libcurl			http://curl.haxx.se/libcurl/
-* jansson			http://www.digip.org/jansson/ (jansson is included in-tree)
+* jansson			https://github.com/akheron/jansson (2.7 or newer)
 
 Download
 ========

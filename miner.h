@@ -122,11 +122,7 @@ static inline void le32enc(void *pp, uint32_t x)
 }
 #endif
 
-#if JANSSON_MAJOR_VERSION >= 2
 #define JSON_LOADS(str, err_ptr) json_loads((str), 0, (err_ptr))
-#else
-#define JSON_LOADS(str, err_ptr) json_loads((str), (err_ptr))
-#endif
 
 #define USER_AGENT PACKAGE_NAME "/" PACKAGE_VERSION
 

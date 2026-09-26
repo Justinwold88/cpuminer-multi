@@ -1,15 +1,7 @@
 
-if WANT_JANSSON
-JANSSON_INCLUDES= -I$(top_srcdir)/compat/jansson
-else
-JANSSON_INCLUDES=
-endif
-
 EXTRA_DIST	= autogen.sh example-cfg.json nomacro.pl
 
-SUBDIRS		= compat
-
-AM_CPPFLAGS	= $(JANSSON_INCLUDES) $(LIBCURL_CFLAGS)
+AM_CPPFLAGS	= $(JANSSON_CFLAGS) $(LIBCURL_CFLAGS)
 AM_CFLAGS	= $(PTHREAD_FLAGS) -fno-strict-aliasing
 
 # All proof-of-work code lives in one library so that the miner and the
