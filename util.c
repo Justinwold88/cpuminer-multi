@@ -459,31 +459,50 @@ char *bin2hex(const unsigned char *p, size_t len)
 	return s;
 }
 
+static int hex_digit(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+/* Decode exactly len bytes of hex; fails on anything that is not a hex digit
+ * (strtol() used to accept signs and spaces) or on a string of any other
+ * length. */
 bool hex2bin(unsigned char *p, const char *hexstr, size_t len)
 {
-	char hex_byte[3];
-	char *ep;
-
-	hex_byte[2] = '\0';
-
 	while (*hexstr && len) {
+		int hi, lo;
+
 		if (!hexstr[1]) {
 			applog(LOG_ERR, "hex2bin str truncated");
 			return false;
 		}
-		hex_byte[0] = hexstr[0];
-		hex_byte[1] = hexstr[1];
-		*p = (unsigned char) strtol(hex_byte, &ep, 16);
-		if (*ep) {
-			applog(LOG_ERR, "hex2bin failed on '%s'", hex_byte);
+		hi = hex_digit(hexstr[0]);
+		lo = hex_digit(hexstr[1]);
+		if (hi < 0 || lo < 0) {
+			applog(LOG_ERR, "hex2bin failed on '%.2s'", hexstr);
 			return false;
 		}
-		p++;
+		*p++ = (unsigned char) (hi << 4 | lo);
 		hexstr += 2;
 		len--;
 	}
 
-	return (len == 0 && *hexstr == 0) ? true : false;
+	return len == 0 && *hexstr == 0;
+}
+
+/* true if s is a string of hex digits */
+static bool is_hex(const char *s)
+{
+	for (; *s; s++)
+		if (hex_digit(*s) < 0)
+			return false;
+	return true;
 }
 
 /* Subtract the `struct timeval' values X and Y,
@@ -557,7 +576,13 @@ void diff_to_target(uint32_t *target, double diff)
 {
 	uint64_t m;
 	int k;
-	
+
+	/* callers reject diff <= 0; keep NaN or absurdly small values from
+	 * turning into an undefined float-to-integer conversion */
+	if (!(diff >= 4294901760.0 / 18446744073709551615.0)) {
+		memset(target, 0xff, 32);
+		return;
+	}
 	for (k = 6; k > 0 && diff > 1.0; k--)
 		diff /= 4294967296.0;
 	m = 4294901760.0 / diff;
@@ -654,60 +679,65 @@ static void stratum_buffer_append(struct stratum_ctx *sctx, const char *s)
 	strcpy(sctx->sockbuf + old, s);
 }
 
+/* longest stratum message we accept (mining.notify with a big merkle branch
+ * is a few kilobytes) */
+#define STRATUM_MAX_LINE (1 << 20)
+
 char *stratum_recv_line(struct stratum_ctx *sctx)
 {
-	ssize_t len, buflen;
-	char *tok, *sret = NULL;
+	char *sret = NULL;
+	time_t rstart;
 
-	if (!strstr(sctx->sockbuf, "\n")) {
-		bool ret = true;
-		time_t rstart;
+	time(&rstart);
+	while (1) {
+		char *line = sctx->sockbuf, *nl;
+		size_t skip = 0;
 
-		time(&rstart);
-		if (!socket_full(sctx->sock, 60)) {
-			applog(LOG_ERR, "stratum_recv_line timed out");
-			goto out;
+		/* drop empty lines: some servers send bare newlines as keep-alives */
+		while (line[skip] == '\n' || (line[skip] == '\r' && line[skip + 1] == '\n'))
+			skip += line[skip] == '\r' ? 2 : 1;
+		if (skip)
+			memmove(line, line + skip, strlen(line + skip) + 1);
+
+		nl = strchr(line, '\n');
+		if (nl) {
+			size_t len = nl - line;
+			sret = malloc(len + 1);
+			if (sret) {
+				memcpy(sret, line, len);
+				sret[len] = '\0';
+			}
+			memmove(line, nl + 1, strlen(nl + 1) + 1);
+			break;
 		}
-		do {
+		if (strlen(line) > STRATUM_MAX_LINE) {
+			applog(LOG_ERR, "stratum_recv_line: line too long");
+			break;
+		}
+		if (time(NULL) - rstart >= 60 || !socket_full(sctx->sock, 60)) {
+			applog(LOG_ERR, "stratum_recv_line timed out");
+			break;
+		}
+		{
 			char s[RBUFSIZE];
 			ssize_t n;
 
 			memset(s, 0, RBUFSIZE);
 			n = recv(sctx->sock, s, RECVSIZE, 0);
 			if (!n) {
-				ret = false;
+				applog(LOG_ERR, "stratum_recv_line failed");
 				break;
 			}
 			if (n < 0) {
 				if (!socket_blocks() || !socket_full(sctx->sock, 1)) {
-					ret = false;
+					applog(LOG_ERR, "stratum_recv_line failed");
 					break;
 				}
 			} else
 				stratum_buffer_append(sctx, s);
-		} while (time(NULL) - rstart < 60 && !strstr(sctx->sockbuf, "\n"));
-
-		if (!ret) {
-			applog(LOG_ERR, "stratum_recv_line failed");
-			goto out;
 		}
 	}
 
-	buflen = strlen(sctx->sockbuf);
-	tok = strtok(sctx->sockbuf, "\n");
-	if (!tok) {
-		applog(LOG_ERR, "stratum_recv_line failed to parse a newline-terminated string");
-		goto out;
-	}
-	sret = strdup(tok);
-	len = strlen(sret);
-
-	if (buflen > len + 1)
-		memmove(sctx->sockbuf, sctx->sockbuf + len + 1, buflen - len + 1);
-	else
-		sctx->sockbuf[0] = '\0';
-
-out:
 	if (sret && opt_protocol)
 		applog(LOG_DEBUG, "< %s", sret);
 	return sret;
@@ -828,24 +858,34 @@ static const char *get_stratum_session_id(json_t *val)
 
 bool stratum_subscribe(struct stratum_ctx *sctx)
 {
-    if(jsonrpc_2) return true;
-	char *s, *sret = NULL;
+	char *s = NULL, *sret = NULL;
 	const char *sid, *xnonce1;
-	int xn2_size;
-	json_t *val = NULL, *res_val, *err_val;
+	json_int_t xn2_size;
+	json_t *req, *val = NULL, *res_val, *err_val;
 	json_error_t err;
-	bool ret = false, retry = false;
+	bool ret = false, retry = false, answered;
+
+	if (jsonrpc_2)
+		return true;
 
 start:
-	s = malloc(128 + (sctx->session_id ? strlen(sctx->session_id) : 0));
+	/* try to resume the previous session; if the pool rejects that, retry
+	 * once with no parameters at all (some old pools want exactly that) */
+	answered = false;
 	if (retry)
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}");
+		req = json_pack("{s:i, s:s, s:[]}", "id", 1,
+				"method", "mining.subscribe", "params");
 	else if (sctx->session_id)
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\", \"%s\"]}", sctx->session_id);
+		req = json_pack("{s:i, s:s, s:[s, s]}", "id", 1,
+				"method", "mining.subscribe",
+				"params", USER_AGENT, sctx->session_id);
 	else
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\"]}");
+		req = json_pack("{s:i, s:s, s:[s]}", "id", 1,
+				"method", "mining.subscribe", "params", USER_AGENT);
+	s = req ? json_dumps(req, 0) : NULL;
+	json_decref(req);
 
-	if (!stratum_send_line(sctx, s)) {
+	if (!s || !stratum_send_line(sctx, s)) {
 		applog(LOG_ERR, "stratum_subscribe send failed");
 		goto out;
 	}
@@ -858,6 +898,7 @@ start:
 	sret = stratum_recv_line(sctx);
 	if (!sret)
 		goto out;
+	answered = true;
 
 	val = JSON_LOADS(sret, &err);
 	free(sret);
@@ -872,12 +913,10 @@ start:
 	if (!res_val || json_is_null(res_val) ||
 	    (err_val && !json_is_null(err_val))) {
 		if (opt_debug || retry) {
-			free(s);
-			if (err_val)
-				s = json_dumps(err_val, JSON_INDENT(3));
-			else
-				s = strdup("(unknown reason)");
-			applog(LOG_ERR, "JSON-RPC call failed: %s", s);
+			char *reason = err_val ? json_dumps(err_val, JSON_INDENT(3)) : NULL;
+			applog(LOG_ERR, "JSON-RPC call failed: %s",
+			       reason ? reason : "(unknown reason)");
+			free(reason);
 		}
 		goto out;
 	}
@@ -891,8 +930,12 @@ start:
 		goto out;
 	}
 	xn2_size = json_integer_value(json_array_get(res_val, 2));
-	if (!xn2_size) {
-		applog(LOG_ERR, "Failed to get extranonce2_size");
+	if (xn2_size < 1 || xn2_size > 16) {
+		applog(LOG_ERR, "Invalid extranonce2_size %.0f", (double) xn2_size);
+		goto out;
+	}
+	if (strlen(xnonce1) % 2 || strlen(xnonce1) > 64 || !is_hex(xnonce1)) {
+		applog(LOG_ERR, "Invalid extranonce1");
 		goto out;
 	}
 
@@ -901,27 +944,30 @@ start:
 	free(sctx->xnonce1);
 	sctx->session_id = sid ? strdup(sid) : NULL;
 	sctx->xnonce1_size = strlen(xnonce1) / 2;
-	sctx->xnonce1 = malloc(sctx->xnonce1_size);
-	hex2bin(sctx->xnonce1, xnonce1, sctx->xnonce1_size);
-	sctx->xnonce2_size = xn2_size;
+	sctx->xnonce1 = malloc(sctx->xnonce1_size + 1);
+	if (sctx->xnonce1)
+		hex2bin(sctx->xnonce1, xnonce1, sctx->xnonce1_size);
+	sctx->xnonce2_size = (int) xn2_size;
 	sctx->next_diff = 1.0;
 	pthread_mutex_unlock(&sctx->work_lock);
+	if (!sctx->xnonce1)
+		goto out;
 
 	if (opt_debug && sid)
-		applog(LOG_DEBUG, "Stratum session id: %s", sctx->session_id);
+		applog(LOG_DEBUG, "Stratum session id: %s", sid);
 
 	ret = true;
 
 out:
 	free(s);
+	s = NULL;
 	if (val)
 		json_decref(val);
+	val = NULL;
 
-	if (!ret) {
-		if (sret && !retry) {
-			retry = true;
-			goto start;
-		}
+	if (!ret && answered && !retry) {
+		retry = true;
+		goto start;
 	}
 
 	return ret;
@@ -1008,61 +1054,80 @@ static bool stratum_2_job(struct stratum_ctx *sctx, json_t *params)
 static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 {
 	const char *job_id, *prevhash, *coinb1, *coinb2, *version, *nbits, *ntime;
-	size_t coinb1_size, coinb2_size;
-	bool clean, ret = false;
+	size_t coinb1_size, coinb2_size, coinbase_size, xn2_off;
+	unsigned char *coinbase, **merkle;
+	bool clean, same_job;
 	int merkle_count, i;
 	json_t *merkle_arr;
-	unsigned char **merkle;
 
 	job_id = json_string_value(json_array_get(params, 0));
 	prevhash = json_string_value(json_array_get(params, 1));
 	coinb1 = json_string_value(json_array_get(params, 2));
 	coinb2 = json_string_value(json_array_get(params, 3));
 	merkle_arr = json_array_get(params, 4);
-	if (!merkle_arr || !json_is_array(merkle_arr))
-		goto out;
-	merkle_count = json_array_size(merkle_arr);
 	version = json_string_value(json_array_get(params, 5));
 	nbits = json_string_value(json_array_get(params, 6));
 	ntime = json_string_value(json_array_get(params, 7));
 	clean = json_is_true(json_array_get(params, 8));
 
+	/* validate everything before touching the current job */
 	if (!job_id || !prevhash || !coinb1 || !coinb2 || !version || !nbits || !ntime ||
+	    !json_is_array(merkle_arr) ||
 	    strlen(prevhash) != 64 || strlen(version) != 8 ||
-	    strlen(nbits) != 8 || strlen(ntime) != 8) {
+	    strlen(nbits) != 8 || strlen(ntime) != 8 ||
+	    strlen(coinb1) % 2 || strlen(coinb2) % 2 ||
+	    !is_hex(prevhash) || !is_hex(coinb1) || !is_hex(coinb2) ||
+	    !is_hex(version) || !is_hex(nbits) || !is_hex(ntime)) {
 		applog(LOG_ERR, "Stratum notify: invalid parameters");
-		goto out;
+		return false;
 	}
-	merkle = malloc(merkle_count * sizeof(char *));
+	merkle_count = (int) json_array_size(merkle_arr);
+	merkle = calloc(merkle_count ? merkle_count : 1, sizeof(*merkle));
+	if (!merkle)
+		return false;
 	for (i = 0; i < merkle_count; i++) {
 		const char *s = json_string_value(json_array_get(merkle_arr, i));
-		if (!s || strlen(s) != 64) {
-			while (i--)
-				free(merkle[i]);
-			free(merkle);
+		if (!s || strlen(s) != 64 || !is_hex(s) || !(merkle[i] = malloc(32))) {
 			applog(LOG_ERR, "Stratum notify: invalid Merkle branch");
-			goto out;
+			goto err;
 		}
-		merkle[i] = malloc(32);
 		hex2bin(merkle[i], s, 32);
 	}
+	coinb1_size = strlen(coinb1) / 2;
+	coinb2_size = strlen(coinb2) / 2;
 
 	pthread_mutex_lock(&sctx->work_lock);
 
-	coinb1_size = strlen(coinb1) / 2;
-	coinb2_size = strlen(coinb2) / 2;
-	sctx->job.coinbase_size = coinb1_size + sctx->xnonce1_size +
-	                          sctx->xnonce2_size + coinb2_size;
-	sctx->job.coinbase = realloc(sctx->job.coinbase, sctx->job.coinbase_size);
-	sctx->job.xnonce2 = sctx->job.coinbase + coinb1_size + sctx->xnonce1_size;
-	hex2bin(sctx->job.coinbase, coinb1, coinb1_size);
-	memcpy(sctx->job.coinbase + coinb1_size, sctx->xnonce1, sctx->xnonce1_size);
-	if (!sctx->job.job_id || strcmp(sctx->job.job_id, job_id))
-		memset(sctx->job.xnonce2, 0, sctx->xnonce2_size);
-	hex2bin(sctx->job.xnonce2 + sctx->xnonce2_size, coinb2, coinb2_size);
+	/* coinbase = coinb1 | extranonce1 | extranonce2 | coinb2 */
+	xn2_off = coinb1_size + sctx->xnonce1_size;
+	coinbase_size = xn2_off + sctx->xnonce2_size + coinb2_size;
+	coinbase = malloc(coinbase_size);
+	if (!coinbase) {
+		pthread_mutex_unlock(&sctx->work_lock);
+		goto err;
+	}
+	hex2bin(coinbase, coinb1, coinb1_size);
+	memcpy(coinbase + coinb1_size, sctx->xnonce1, sctx->xnonce1_size);
+	/* When the pool re-sends the job we are working on (for instance
+	 * along with a new difficulty) keep rolling extranonce2 from where we
+	 * are, or the shares we already sent would be found and sent again. */
+	same_job = sctx->job.job_id && sctx->job.xnonce2 &&
+	           !strcmp(sctx->job.job_id, job_id);
+	if (same_job)
+		memcpy(coinbase + xn2_off, sctx->job.xnonce2, sctx->xnonce2_size);
+	else
+		memset(coinbase + xn2_off, 0, sctx->xnonce2_size);
+	hex2bin(coinbase + xn2_off + sctx->xnonce2_size, coinb2, coinb2_size);
 
-	free(sctx->job.job_id);
-	sctx->job.job_id = strdup(job_id);
+	free(sctx->job.coinbase);
+	sctx->job.coinbase = coinbase;
+	sctx->job.coinbase_size = coinbase_size;
+	sctx->job.xnonce2 = coinbase + xn2_off;
+
+	if (!same_job) {
+		free(sctx->job.job_id);
+		sctx->job.job_id = strdup(job_id);
+	}
 	hex2bin(sctx->job.prevhash, prevhash, 32);
 
 	for (i = 0; i < sctx->job.merkle_count; i++)
@@ -1080,10 +1145,13 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 
 	pthread_mutex_unlock(&sctx->work_lock);
 
-	ret = true;
+	return true;
 
-out:
-	return ret;
+err:
+	for (i = 0; i < merkle_count; i++)
+		free(merkle[i]);
+	free(merkle);
+	return false;
 }
 
 static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
@@ -1091,8 +1159,12 @@ static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
 	double diff;
 
 	diff = json_number_value(json_array_get(params, 0));
-	if (diff == 0)
+	/* a zero, negative or non-finite difficulty would make every hash a
+	 * "share" and flood the pool */
+	if (!(diff > 0.) || diff > 1e30) {
+		applog(LOG_ERR, "Stratum: ignoring invalid difficulty %g", diff);
 		return false;
+	}
 
 	pthread_mutex_lock(&sctx->work_lock);
 	sctx->next_diff = diff;
