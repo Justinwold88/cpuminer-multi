@@ -929,22 +929,25 @@ out:
 
 bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *pass)
 {
-	json_t *val = NULL, *res_val, *err_val;
-	char *s, *sret;
+	json_t *val = NULL, *res_val, *err_val, *req;
+	char *s = NULL, *sret;
 	json_error_t err;
 	bool ret = false;
 
-	if(jsonrpc_2) {
-        s = malloc(300 + strlen(user) + strlen(pass));
-        sprintf(s, "{\"method\": \"login\", \"params\": {\"login\": \"%s\", \"pass\": \"%s\", \"agent\": \"cpuminer-multi/0.1\"}, \"id\": 1}",
-                user, pass);
-	} else {
-        s = malloc(80 + strlen(user) + strlen(pass));
-        sprintf(s, "{\"id\": 2, \"method\": \"mining.authorize\", \"params\": [\"%s\", \"%s\"]}",
-                user, pass);
-	}
-
-	if (!stratum_send_line(sctx, s))
+	/* built with jansson so quotes or backslashes in credentials are escaped */
+	if (jsonrpc_2)
+		req = json_pack("{s:s, s:{s:s, s:s, s:s}, s:i}",
+				"method", "login",
+				"params", "login", user, "pass", pass, "agent", USER_AGENT,
+				"id", 1);
+	else
+		req = json_pack("{s:i, s:s, s:[s, s]}",
+				"id", 2, "method", "mining.authorize",
+				"params", user, pass);
+	if (req)
+		s = json_dumps(req, 0);
+	json_decref(req);
+	if (!s || !stratum_send_line(sctx, s))
 		goto out;
 
 	while (1) {
@@ -973,8 +976,11 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 	}
 
     if(jsonrpc_2) {
-        rpc2_login_decode(val);
         json_t *job_val = json_object_get(res_val, "job");
+        if (!rpc2_login_decode(val)) {
+            applog(LOG_ERR, "Stratum authentication failed");
+            goto out;
+        }
         pthread_mutex_lock(&sctx->work_lock);
         if(job_val) rpc2_job_decode(job_val, &sctx->work);
         pthread_mutex_unlock(&sctx->work_lock);

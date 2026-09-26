@@ -274,6 +274,47 @@ static int scan_test(size_t a, const unsigned char *header)
 	return failures;
 }
 
+/* CryptoNight scan: 64-bit target, nonce at bytes 39..42, any blob length */
+static int cn_scan_test(size_t len)
+{
+	unsigned char blob[RPC2_MAX_BLOB], hash[32];
+	uint32_t pdata[32], target[8], nonce = 0x12345678;
+	uint64_t top, done;
+	char what[64];
+	int rc, failures = 0;
+
+	for (size_t i = 0; i < len; i++)
+		blob[i] = (unsigned char)(i * 7 + 3);
+	le32enc(blob + 39, nonce);
+	cryptonight_hash(hash, blob, len);
+	top = ((uint64_t)le32(hash + 28) << 32) | le32(hash + 24);
+
+	memset(pdata, 0, sizeof(pdata));
+	memcpy(pdata, blob, len);
+	memset(target, 0xff, sizeof(target));
+	target[6] = (uint32_t)(top + 1);
+	target[7] = (uint32_t)((top + 1) >> 32);
+	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done);
+	snprintf(what, sizeof(what), "cryptonight scan (%zu-byte blob) finds share", len);
+	if (!rc || le32dec((unsigned char *)pdata + 39) != nonce) {
+		printf("FAIL %s\n", what);
+		failures++;
+	} else
+		printf("ok   %s\n", what);
+
+	memcpy(pdata, blob, len);
+	target[6] = (uint32_t)top;
+	target[7] = (uint32_t)(top >> 32);
+	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done);
+	snprintf(what, sizeof(what), "cryptonight scan (%zu-byte blob) rejects target = hash", len);
+	if (rc) {
+		printf("FAIL %s\n", what);
+		failures++;
+	} else
+		printf("ok   %s\n", what);
+	return failures;
+}
+
 static int hash_cli(const char *algo, const char *hex)
 {
 	unsigned char in[256], out[64];
@@ -335,6 +376,9 @@ int main(int argc, char **argv)
 		snprintf(what, sizeof(what), "cryptonight \"%s\"", cn_vectors[v].input);
 		failures += check(what, hash, cn_vectors[v].expected);
 	}
+
+	failures += cn_scan_test(76);
+	failures += cn_scan_test(77);
 
 	printf("%d failure(s)\n", failures);
 	return failures ? 1 : 0;

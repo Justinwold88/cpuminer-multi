@@ -262,40 +262,42 @@ void cryptonight_hash_ctx_aes_ni(void* output, const void* input, size_t len, st
 }
 #endif /* HAVE_AESNI_ASM */
 
-int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
-		uint32_t max_nonce, uint64_t *hashes_done) {
-	uint32_t *nonceptr = (uint32_t*) (((char*)pdata) + 39);
-	uint32_t n = *nonceptr - 1;
+/* Scan nonces for a CryptoNight job. pdata holds a data_size-byte blob with
+ * the nonce at bytes 39..42; target[7]:target[6] is the 64-bit share target
+ * compared with the top 64 bits of the hash. */
+int scanhash_cryptonight(int thr_id, uint32_t *pdata, size_t data_size,
+		const uint32_t *ptarget, uint32_t max_nonce, uint64_t *hashes_done) {
+	unsigned char *blob = (unsigned char *) pdata;
+	uint32_t n = le32dec(blob + 39) - 1;
 	const uint32_t first_nonce = n + 1;
-	const uint32_t Htarg = ptarget[7];
+	const uint64_t target = ((uint64_t) ptarget[7] << 32) | ptarget[6];
 	uint32_t hash[HASH_SIZE / 4] __attribute__((aligned(32)));
+	struct cryptonight_ctx *ctx;
 
-	struct cryptonight_ctx *ctx = (struct cryptonight_ctx*)malloc(sizeof(struct cryptonight_ctx));
-
-#ifdef HAVE_AESNI_ASM
-	if (aes_ni_supported) {
-		do {
-			*nonceptr = ++n;
-			cryptonight_hash_ctx_aes_ni(hash, pdata, 76, ctx);
-			if (unlikely(hash[7] < ptarget[7])) {
-				*hashes_done = n - first_nonce + 1;
-				free(ctx);
-				return true;
-			}
-		} while (likely((n <= max_nonce && !work_restart[thr_id].restart)));
-	} else
-#endif
-	{
-		do {
-			*nonceptr = ++n;
-			cryptonight_hash_ctx(hash, pdata, 76, ctx);
-			if (unlikely(hash[7] < ptarget[7])) {
-				*hashes_done = n - first_nonce + 1;
-				free(ctx);
-				return true;
-			}
-		} while (likely((n <= max_nonce && !work_restart[thr_id].restart)));
+	if (data_size < RPC2_MIN_BLOB || data_size > RPC2_MAX_BLOB) {
+		*hashes_done = 0;
+		return 0;
 	}
+	ctx = (struct cryptonight_ctx*)malloc(sizeof(struct cryptonight_ctx));
+	if (!ctx) {
+		*hashes_done = 0;
+		return 0;
+	}
+
+	do {
+		le32enc(blob + 39, ++n);
+#ifdef HAVE_AESNI_ASM
+		if (aes_ni_supported)
+			cryptonight_hash_ctx_aes_ni(hash, blob, data_size, ctx);
+		else
+#endif
+			cryptonight_hash_ctx(hash, blob, data_size, ctx);
+		if (unlikely((((uint64_t) hash[7] << 32) | hash[6]) < target)) {
+			*hashes_done = n - first_nonce + 1;
+			free(ctx);
+			return 1;
+		}
+	} while (likely(n < max_nonce && !work_restart[thr_id].restart));
 
 	free(ctx);
 	*hashes_done = n - first_nonce + 1;

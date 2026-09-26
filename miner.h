@@ -206,7 +206,12 @@ extern void x13hash(void *output, const void *input);
 extern void x14hash(void *output, const void *input);
 extern void x15hash(void *output, const void *input);
 
-extern int scanhash_cryptonight(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+/* CryptoNight job blobs: the nonce is at bytes 39..42 */
+#define RPC2_MIN_BLOB 43
+#define RPC2_MAX_BLOB 128
+
+extern int scanhash_cryptonight(int thr_id, uint32_t *pdata, size_t data_size,
+                            const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 
 struct thr_info {
@@ -257,6 +262,7 @@ extern void diff_to_target(uint32_t *target, double diff);
 struct work {
     uint32_t data[32];
     uint32_t target[8];
+    size_t data_size;	/* CryptoNight: job blob length in bytes */
 
     char *job_id;
     size_t xnonce2_len;
