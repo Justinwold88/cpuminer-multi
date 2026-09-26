@@ -1,5 +1,5 @@
 
-EXTRA_DIST	= autogen.sh example-cfg.json nomacro.pl
+EXTRA_DIST	= autogen.sh example-cfg.json
 
 AM_CPPFLAGS	= $(JANSSON_CFLAGS) $(LIBCURL_CFLAGS)
 AM_CFLAGS	= $(PTHREAD_FLAGS) -fno-strict-aliasing

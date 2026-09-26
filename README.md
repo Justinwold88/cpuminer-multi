@@ -58,7 +58,6 @@ Build
 
 #### Basic *nix build instructions:
  * ./autogen.sh	# only needed if building from git repo
- * ./nomacro.pl	# only needed if building on Mac OS X or with Clang
  * ./configure CFLAGS="*-march=native*"
    * # Use -march=native if building for a single machine
  * make
