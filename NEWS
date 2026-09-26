@@ -3,7 +3,10 @@ Version multi 1.1.0 (unreleased)
 Algorithms
 - blake: shares are now valid for Blakecoin and the coins merge-mined
   with it (their transaction ids are single SHA-256).
-- skein: shares are checked against the real target (DigiByte).
+- skein: shares are checked against the real target (DigiByte); about
+  twice as fast (x86 SHA extensions for its final SHA-256, and the
+  header's constant first block hashed once per scan).
+- blake: 1.9 times as fast (constant first block hashed once per scan).
 - cryptonight: the whole job blob is hashed (pools send 76-byte and
   longer blobs), with 64-bit share targets; works over stratum and HTTP.
   About 45% faster with AES-NI (intrinsics instead of a function call per
