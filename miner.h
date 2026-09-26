@@ -48,6 +48,20 @@ enum {
 };
 #endif
 
+/* Let the compiler check applog() format strings against their arguments.
+ * MinGW's format flavour depends on which printf implementation is in use. */
+#if defined(__GNUC__) || defined(__clang__)
+# if defined(__MINGW32__) && defined(__MINGW_PRINTF_FORMAT)
+#  define PRINTF_FMT(fmt_idx, arg_idx) \
+	__attribute__((format(__MINGW_PRINTF_FORMAT, fmt_idx, arg_idx)))
+# else
+#  define PRINTF_FMT(fmt_idx, arg_idx) \
+	__attribute__((format(printf, fmt_idx, arg_idx)))
+# endif
+#else
+# define PRINTF_FMT(fmt_idx, arg_idx)
+#endif
+
 #undef unlikely
 #undef likely
 #if defined(__GNUC__) && (__GNUC__ > 2) && defined(__OPTIMIZE__)
@@ -249,7 +263,7 @@ extern bool aes_ni_supported;
 #define JSON_RPC_QUIET_404	(1 << 1)
 #define JSON_RPC_IGNOREERR  (1 << 2)
 
-extern void applog(int prio, const char *fmt, ...);
+extern void applog(int prio, const char *fmt, ...) PRINTF_FMT(2, 3);
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 	const char *rpc_req, int *curl_err, int flags);
 extern char *bin2hex(const unsigned char *p, size_t len);

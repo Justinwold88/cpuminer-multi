@@ -779,8 +779,8 @@ static bool get_upstream_work(CURL *curl, struct work *work) {
 
     if (opt_debug && rc) {
         timeval_subtract(&diff, &tv_end, &tv_start);
-        applog(LOG_DEBUG, "DEBUG: got new work in %d ms",
-                diff.tv_sec * 1000 + diff.tv_usec / 1000);
+        applog(LOG_DEBUG, "DEBUG: got new work in %ld ms",
+                (long) (diff.tv_sec * 1000 + diff.tv_usec / 1000));
     }
 
     json_decref(val);
@@ -1389,14 +1389,14 @@ static void *miner_thread(void *userdata) {
         if (!opt_quiet) {
             switch(opt_algo) {
             case ALGO_CRYPTONIGHT:
-                applog(LOG_INFO, "thread %d: %lu hashes, %.2f H/s", thr_id,
-                        hashes_done, thr_hashrates[thr_id]);
+                applog(LOG_INFO, "thread %d: %" PRIu64 " hashes, %.2f H/s",
+                        thr_id, hashes_done, thr_hashrates[thr_id]);
                 break;
             default:
                 sprintf(s, thr_hashrates[thr_id] >= 1e6 ? "%.0f" : "%.2f",
                         thr_hashrates[thr_id] / 1e3);
-                applog(LOG_INFO, "thread %d: %llu hashes, %s khash/s", thr_id,
-                        hashes_done, s);
+                applog(LOG_INFO, "thread %d: %" PRIu64 " hashes, %s khash/s",
+                        thr_id, hashes_done, s);
                 break;
             }
         }
@@ -1407,7 +1407,7 @@ static void *miner_thread(void *userdata) {
             if (i == opt_n_threads) {
                 switch(opt_algo) {
                 case ALGO_CRYPTONIGHT:
-                    applog(LOG_INFO, "Total: %s H/s", hashrate);
+                    applog(LOG_INFO, "Total: %.2f H/s", hashrate);
                     break;
                 default:
                     sprintf(s, hashrate >= 1e6 ? "%.0f" : "%.2f", hashrate / 1000);
