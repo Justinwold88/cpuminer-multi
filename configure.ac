@@ -105,6 +105,18 @@ then
   )
 fi
 
+if test "x$enable_assembly" != xno && test "x$have_x86" = xtrue; then
+  dnl The 32-bit x86 assembly is not position independent: in a PIE (the
+  dnl default with most compilers now) it needs text relocations, which
+  dnl some linkers refuse.
+  AC_MSG_CHECKING([whether the linker accepts -no-pie])
+  save_LDFLAGS=$LDFLAGS
+  LDFLAGS="$LDFLAGS -no-pie"
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([], [])],
+    [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no]); LDFLAGS=$save_LDFLAGS])
+fi
+
 AC_CHECK_LIB([pthread], [pthread_create], PTHREAD_LIBS="-lpthread",
   AC_CHECK_LIB([pthreadGC2], [pthread_create], PTHREAD_LIBS="-lpthreadGC2",
     AC_CHECK_LIB([pthreadGC1], [pthread_create], PTHREAD_LIBS="-lpthreadGC1",
