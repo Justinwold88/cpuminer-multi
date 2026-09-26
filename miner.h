@@ -235,8 +235,13 @@ struct thr_info {
 	struct thread_q	*q;
 };
 
+/* Set by the network threads when the miner threads should drop what they
+ * are hashing; read in every scan loop. Atomic (a volatile flag is a data
+ * race in C11); plain reads and writes of it are atomic operations, which
+ * on x86 compile to ordinary loads. Padded to keep each thread's flag in
+ * its own cache line. */
 struct work_restart {
-	volatile unsigned long	restart;
+	_Atomic unsigned long	restart;
 	char			padding[128 - sizeof(unsigned long)];
 };
 
@@ -244,11 +249,12 @@ extern bool opt_debug;
 extern bool opt_protocol;
 extern bool opt_redirect;
 extern int opt_timeout;
+/* set at startup, or by one thread and read by others: atomic */
 extern bool want_longpoll;
-extern bool have_longpoll;
-extern bool have_gbt;
+extern _Atomic bool have_longpoll;
+extern _Atomic bool have_gbt;
 extern bool want_stratum;
-extern bool have_stratum;
+extern _Atomic bool have_stratum;
 extern char *opt_cert;
 extern char *opt_proxy;
 extern long opt_proxy_type;
@@ -292,6 +298,7 @@ struct work {
     char *job_id;
     size_t xnonce2_len;
     unsigned char *xnonce2;
+    unsigned conn_gen;	/* stratum: the connection the job came from */
 
     /* getblocktemplate */
     int64_t height;
@@ -324,6 +331,9 @@ struct stratum_ctx {
 	size_t sockbuf_size;
 	char *sockbuf;
 	pthread_mutex_t sock_lock;
+	/* counts connections: work records the one its job came from, and
+	 * shares from an earlier connection are not sent */
+	_Atomic unsigned conn_gen;
 
 	double next_diff;
 

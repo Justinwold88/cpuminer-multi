@@ -971,32 +971,30 @@ static curl_socket_t opensocket_grab_cb(void *clientp, curlsocktype purpose,
 bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 {
 	CURL *curl;
+	curl_socket_t sock = CURL_SOCKET_BAD;
+	const char *hostport;
 	int rc;
 
-	pthread_mutex_lock(&sctx->sock_lock);
-	if (sctx->curl)
-		curl_easy_cleanup(sctx->curl);
-	sctx->curl = curl_easy_init();
-	if (!sctx->curl) {
+	curl = curl_easy_init();
+	if (!curl) {
 		applog(LOG_ERR, "CURL initialization failed");
-		pthread_mutex_unlock(&sctx->sock_lock);
 		return false;
 	}
-	curl = sctx->curl;
-	if (!sctx->sockbuf) {
-		sctx->sockbuf = calloc(RBUFSIZE, 1);
-		sctx->sockbuf_size = RBUFSIZE;
-	}
-	sctx->sockbuf[0] = '\0';
-	pthread_mutex_unlock(&sctx->sock_lock);
 
 	if (url != sctx->url) {
 		free(sctx->url);
 		sctx->url = strdup(url);
 	}
+	/* curl only needs host and port: pass it as http://HOST:PORT */
+	hostport = strstr(url, "://");
+	hostport = hostport ? hostport + 3 : url;
 	free(sctx->curl_url);
-	sctx->curl_url = malloc(strlen(url));
-	sprintf(sctx->curl_url, "http%s", strstr(url, "://"));
+	sctx->curl_url = malloc(strlen(hostport) + 8);
+	if (!sctx->curl_url) {
+		curl_easy_cleanup(curl);
+		return false;
+	}
+	sprintf(sctx->curl_url, "http://%s", hostport);
 
 	if (opt_protocol)
 		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
@@ -1016,7 +1014,7 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 #endif
 #if LIBCURL_VERSION_NUM >= 0x071101
 	curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensocket_grab_cb);
-	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, &sctx->sock);
+	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, &sock);
 #endif
 	curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1);
 
@@ -1024,14 +1022,34 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 	if (rc) {
 		applog(LOG_ERR, "Stratum connection failed: %s", sctx->curl_err_str);
 		curl_easy_cleanup(curl);
-		sctx->curl = NULL;
 		return false;
 	}
 
 #if LIBCURL_VERSION_NUM < 0x071101
 	/* CURLINFO_LASTSOCKET is broken on Win64; only use it as a last resort */
-	curl_easy_getinfo(curl, CURLINFO_LASTSOCKET, (long *)&sctx->sock);
+	{
+		long last;
+
+		curl_easy_getinfo(curl, CURLINFO_LASTSOCKET, &last);
+		sock = (curl_socket_t) last;
+	}
 #endif
+
+	/* Make the connection visible to the other threads (share submission)
+	 * only now that it is up. It used to be published before connecting,
+	 * so a share could be sent on a socket still being set up. */
+	pthread_mutex_lock(&sctx->sock_lock);
+	if (sctx->curl)
+		curl_easy_cleanup(sctx->curl);
+	sctx->curl = curl;
+	sctx->sock = sock;
+	if (!sctx->sockbuf) {
+		sctx->sockbuf = calloc(RBUFSIZE, 1);
+		sctx->sockbuf_size = RBUFSIZE;
+	}
+	sctx->sockbuf[0] = '\0';
+	sctx->conn_gen++;
+	pthread_mutex_unlock(&sctx->sock_lock);
 
 	return true;
 }
@@ -1624,19 +1642,20 @@ void *tq_pop(struct thread_q *tq, const struct timespec *abstime)
 
 	pthread_mutex_lock(&tq->mutex);
 
-	if (!list_empty(&tq->q))
-		goto pop;
-
-	if (abstime)
-		rc = pthread_cond_timedwait(&tq->cond, &tq->mutex, abstime);
-	else
-		rc = pthread_cond_wait(&tq->cond, &tq->mutex);
-	if (rc)
-		goto out;
+	/* Condition variables may wake up spuriously: wait again unless there
+	 * is something to pop or the queue was frozen. Returning NULL on such
+	 * a wakeup made its caller (the workio or a miner thread) exit. */
+	while (list_empty(&tq->q) && !tq->frozen) {
+		if (abstime)
+			rc = pthread_cond_timedwait(&tq->cond, &tq->mutex, abstime);
+		else
+			rc = pthread_cond_wait(&tq->cond, &tq->mutex);
+		if (rc)
+			goto out;	/* timed out */
+	}
 	if (list_empty(&tq->q))
-		goto out;
+		goto out;	/* frozen */
 
-pop:
 	ent = list_entry(tq->q.next, struct tq_ent, q_node);
 	rval = ent->data;
 

@@ -136,11 +136,11 @@ bool opt_protocol = false;
 static bool opt_benchmark = false;
 bool opt_redirect = true;
 bool want_longpoll = true;
-bool have_longpoll = false;
+_Atomic bool have_longpoll = false;
 bool want_stratum = true;
-bool have_stratum = false;
-static bool submit_old = false;
-bool have_gbt = true;		/* HTTP: try getblocktemplate before getwork */
+_Atomic bool have_stratum = false;
+static _Atomic bool submit_old = false;
+_Atomic bool have_gbt = true;	/* HTTP: try getblocktemplate before getwork */
 static bool allow_getwork = true;
 static char *opt_coinbase_addr;	/* getblocktemplate: where the block reward goes */
 static char coinbase_sig[101] = "";
@@ -149,7 +149,7 @@ static size_t pk_script_size;
 static char *lp_id;		/* getblocktemplate long polling id */
 static pthread_mutex_t lp_id_lock = PTHREAD_MUTEX_INITIALIZER;
 /* set when retrying cannot help (bad payout address, unsupported coin) */
-static bool fatal_error = false;
+static _Atomic bool fatal_error = false;
 bool use_syslog = false;
 static bool opt_background = false;
 static bool opt_quiet = false;
@@ -178,7 +178,7 @@ int stratum_thr_id = -1;
 struct work_restart *work_restart = NULL;
 static struct stratum_ctx stratum;
 /* CryptoNight (JSON-RPC 2.0) session state, protected by rpc2_job_lock */
-static char rpc2_id[64] = "";
+static char rpc2_id[64] = "";		/* under rpc2_id_lock */
 static unsigned char rpc2_blob[RPC2_MAX_BLOB];
 static size_t rpc2_bloblen = 0;
 static uint32_t rpc2_target[2] = { 0, 0 };	/* low, high 32 bits */
@@ -199,6 +199,15 @@ static int pending_shares;
 
 static pthread_mutex_t rpc2_job_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t rpc2_login_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t rpc2_id_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* copy the CryptoNight pool session id (empty before login) */
+static void rpc2_get_id(char *id)
+{
+    pthread_mutex_lock(&rpc2_id_lock);
+    strcpy(id, rpc2_id);
+    pthread_mutex_unlock(&rpc2_id_lock);
+}
 
 static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
@@ -334,14 +343,15 @@ json_t *json_rpc2_call_recur(CURL *curl, const char *url,
 		int *curl_err, int flags, int recur) {
 	json_t *res, *error, *message, *params, *auth_id;
 	const char *mes;
-	char *req;
+	char *req, id[sizeof(rpc2_id)];
 
 	if (recur >= 5) {
 		if (opt_debug)
 			applog(LOG_DEBUG, "Failed to call rpc command after %i tries", recur);
 		return NULL;
 	}
-	if (!strcmp(rpc2_id, "")) {
+	rpc2_get_id(id);
+	if (!*id) {
 		if (opt_debug)
 			applog(LOG_DEBUG, "Tried to call rpc2 command before authentication");
 		return NULL;
@@ -349,7 +359,7 @@ json_t *json_rpc2_call_recur(CURL *curl, const char *url,
 	params = json_object_get(rpc_req, "params");
 	auth_id = json_object_get(params, "id");
 	if (auth_id)
-		json_string_set(auth_id, rpc2_id);
+		json_string_set(auth_id, id);
 
 	req = json_dumps(rpc_req, 0);
 	if (!req)
@@ -1090,7 +1100,9 @@ bool rpc2_login_decode(const json_t *val) {
         goto err_out;
     }
 
+    pthread_mutex_lock(&rpc2_id_lock);
     strcpy(rpc2_id, id);
+    pthread_mutex_unlock(&rpc2_id_lock);
 
     if(opt_debug)
         applog(LOG_DEBUG, "Auth id: %s", id);
@@ -1152,16 +1164,17 @@ static void share_result(int result, struct work *work, const char *reason) {
 static char *rpc2_submit_req(const struct work *work)
 {
     unsigned char hash[32];
-    char *noncestr, *hashhex, *req = NULL;
+    char *noncestr, *hashhex, *req = NULL, id[sizeof(rpc2_id)];
     json_t *obj;
 
+    rpc2_get_id(id);
     cryptonight_hash(hash, work->data, work->data_size);
     noncestr = bin2hex((const unsigned char *) work->data + 39, 4);
     hashhex = bin2hex(hash, 32);
     obj = json_pack("{s:s, s:{s:s, s:s, s:s, s:s}, s:i}",
             "method", "submit",
             "params",
-                "id", rpc2_id,
+                "id", id,
                 "job_id", work->job_id ? work->job_id : "",
                 "nonce", noncestr ? noncestr : "",
                 "result", hashhex ? hashhex : "",
@@ -1226,14 +1239,13 @@ static char *json_request(json_t *req)
  * login */
 static char *rpc2_getjob_req(void)
 {
-    char *s = NULL;
+    char id[sizeof(rpc2_id)];
 
-    pthread_mutex_lock(&rpc2_login_lock);
-    if (*rpc2_id)
-        s = json_request(json_pack("{s:s, s:{s:s}, s:i}", "method", "getjob",
-                "params", "id", rpc2_id, "id", 1));
-    pthread_mutex_unlock(&rpc2_login_lock);
-    return s;
+    rpc2_get_id(id);
+    if (!*id)
+        return NULL;
+    return json_request(json_pack("{s:s, s:{s:s}, s:i}", "method", "getjob",
+            "params", "id", id, "id", 1));
 }
 
 static bool submit_upstream_work(CURL *curl, struct work *work) {
@@ -1250,6 +1262,12 @@ static bool submit_upstream_work(CURL *curl, struct work *work) {
     }
 
     if (have_stratum) {
+        /* job ids only mean something on the connection they came from */
+        if (work->conn_gen != stratum.conn_gen) {
+            if (opt_debug)
+                applog(LOG_DEBUG, "DEBUG: share for an earlier connection, discarding");
+            return true;
+        }
         if (jsonrpc_2)
             req = rpc2_submit_req(work);
         else {
@@ -1741,6 +1759,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
         work->job_id = job_id;
         work->xnonce2 = NULL;
         work->xnonce2_len = 0;
+        work->conn_gen = sctx->conn_gen;
         pthread_mutex_unlock(&sctx->work_lock);
         return true;
     }
@@ -1757,6 +1776,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
     free(work->xnonce2);
     work->xnonce2 = xnonce2;
     work->xnonce2_len = sctx->xnonce2_size;
+    work->conn_gen = sctx->conn_gen;
     memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
 
     /* generate merkle root */
@@ -1892,16 +1912,20 @@ static void *miner_thread(void *userdata) {
         uint64_t hashes_done;
         struct timeval tv_start, tv_end, diff;
         int64_t max64;
+        time_t work_time;
         int rc;
 
         if (have_stratum) {
             /* wait for a job: while (re)connecting g_work_time is 0, and a
              * Bitcoin-style job older than 2 minutes is considered stale
              * (CryptoNight pools can go much longer between jobs) */
-            while (time(NULL) >= g_work_time + 120
-                    && (!jsonrpc_2 || !g_work_time))
-                sleep(1);
             pthread_mutex_lock(&g_work_lock);
+            while (time(NULL) >= g_work_time + 120
+                    && (!jsonrpc_2 || !g_work_time)) {
+                pthread_mutex_unlock(&g_work_lock);
+                sleep(1);
+                pthread_mutex_lock(&g_work_lock);
+            }
             if (work_nonce(&work) >= end_nonce && !work_differs(&work, &g_work)) {
                 if (!stratum_gen_work(&stratum, &g_work)) {
                     /* nonce range used up and the connection just dropped */
@@ -1952,6 +1976,7 @@ static void *miner_thread(void *userdata) {
             work_sync_job(&work, &g_work);
             work_set_nonce(&work, work_nonce(&work) + 1);
         }
+        work_time = g_work_time;
         pthread_mutex_unlock(&g_work_lock);
 
         if (jsonrpc_2 && work.data_size < RPC2_MIN_BLOB) {
@@ -1964,7 +1989,7 @@ static void *miner_thread(void *userdata) {
         if (have_stratum)
             max64 = LP_SCANTIME;
         else
-            max64 = g_work_time + (have_longpoll ? LP_SCANTIME : opt_scantime)
+            max64 = work_time + (have_longpoll ? LP_SCANTIME : opt_scantime)
                     - time(NULL );
         max64 *= thr_hashrates[thr_id];
         if (max64 <= 0) {
@@ -2091,8 +2116,10 @@ static void *miner_thread(void *userdata) {
         }
         if (opt_benchmark && thr_id == opt_n_threads - 1) {
             double hashrate = 0.;
+            pthread_mutex_lock(&stats_lock);
             for (i = 0; i < opt_n_threads && thr_hashrates[i]; i++)
                 hashrate += thr_hashrates[i];
+            pthread_mutex_unlock(&stats_lock);
             if (i == opt_n_threads) {
                 switch(opt_algo) {
                 case ALGO_CRYPTONIGHT:
@@ -2826,62 +2853,59 @@ int main(int argc, char *argv[]) {
 	if (!thr_hashrates)
 		return 1;
 
-	/* init workio thread info */
+	/* Create every thread's queue before starting any thread: the
+	 * workio thread can hand work to the long polling and stratum
+	 * threads as soon as it runs (it used to find their ids and queues
+	 * not set up yet). */
 	work_thr_id = opt_n_threads;
-	thr = &thr_info[work_thr_id];
-	thr->id = work_thr_id;
-	thr->q = tq_new();
-	if (!thr->q)
+	thr_info[work_thr_id].id = work_thr_id;
+	thr_info[work_thr_id].q = tq_new();
+	if (!thr_info[work_thr_id].q)
 		return 1;
-
-	/* start work I/O thread */
-	if (pthread_create(&thr->pth, NULL, workio_thread, thr)) {
-		applog(LOG_ERR, "workio thread create failed");
-		return 1;
-	}
-
 	if (want_longpoll && !have_stratum) {
-		/* init longpoll thread info */
 		longpoll_thr_id = opt_n_threads + 1;
-		thr = &thr_info[longpoll_thr_id];
-		thr->id = longpoll_thr_id;
-		thr->q = tq_new();
-		if (!thr->q)
+		thr_info[longpoll_thr_id].id = longpoll_thr_id;
+		thr_info[longpoll_thr_id].q = tq_new();
+		if (!thr_info[longpoll_thr_id].q)
 			return 1;
-
-		/* start longpoll thread */
-		if (unlikely(pthread_create(&thr->pth, NULL, longpoll_thread, thr))) {
-			applog(LOG_ERR, "longpoll thread create failed");
-			return 1;
-		}
 	}
 	if (want_stratum) {
-		/* init stratum thread info */
 		stratum_thr_id = opt_n_threads + 2;
-		thr = &thr_info[stratum_thr_id];
-		thr->id = stratum_thr_id;
-		thr->q = tq_new();
-		if (!thr->q)
+		thr_info[stratum_thr_id].id = stratum_thr_id;
+		thr_info[stratum_thr_id].q = tq_new();
+		if (!thr_info[stratum_thr_id].q)
 			return 1;
+	}
+	for (i = 0; i < opt_n_threads; i++) {
+		thr_info[i].id = i;
+		thr_info[i].q = tq_new();
+		if (!thr_info[i].q)
+			return 1;
+	}
 
-		/* start stratum thread */
-		if (unlikely(pthread_create(&thr->pth, NULL, stratum_thread, thr))) {
+	if (longpoll_thr_id >= 0 && unlikely(pthread_create(&thr_info[longpoll_thr_id].pth,
+			NULL, longpoll_thread, &thr_info[longpoll_thr_id]))) {
+		applog(LOG_ERR, "longpoll thread create failed");
+		return 1;
+	}
+	if (stratum_thr_id >= 0) {
+		if (unlikely(pthread_create(&thr_info[stratum_thr_id].pth, NULL,
+				stratum_thread, &thr_info[stratum_thr_id]))) {
 			applog(LOG_ERR, "stratum thread create failed");
 			return 1;
 		}
-
 		if (have_stratum)
 			tq_push(thr_info[stratum_thr_id].q, strdup(rpc_url));
+	}
+	if (pthread_create(&thr_info[work_thr_id].pth, NULL, workio_thread,
+			&thr_info[work_thr_id])) {
+		applog(LOG_ERR, "workio thread create failed");
+		return 1;
 	}
 
 	/* start mining threads */
 	for (i = 0; i < opt_n_threads; i++) {
 		thr = &thr_info[i];
-
-		thr->id = i;
-		thr->q = tq_new();
-		if (!thr->q)
-			return 1;
 
 		if (unlikely(pthread_create(&thr->pth, NULL, miner_thread, thr))) {
 			applog(LOG_ERR, "thread %d create failed", i);
