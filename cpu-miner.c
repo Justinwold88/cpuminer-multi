@@ -115,6 +115,10 @@ enum algos {
     ALGO_QUBIT,       /* Qubit */
     ALGO_ODO,         /* Odocrypt */
     ALGO_NEOSCRYPT,   /* NeoScrypt(128, 2, 1) */
+    ALGO_ARGON2D4096, /* Argon2d, t=1 m=4096 p=1, version 1.3 */
+    ALGO_ARGON2D500,  /* Argon2d, t=2 m=500 p=8 */
+    ALGO_ARGON2D250,  /* Argon2d, t=1 m=250 p=4 */
+    ALGO_ARGON2D16000,/* Argon2d, t=1 m=16000 p=1 */
     ALGO_CRYPTONIGHT, /* CryptoNight */
 };
 
@@ -134,6 +138,10 @@ static const char *algo_names[] = {
     [ALGO_QUBIT] =       "qubit",
     [ALGO_ODO] =         "odo",
     [ALGO_NEOSCRYPT] =   "neoscrypt",
+    [ALGO_ARGON2D4096] = "argon2d4096",
+    [ALGO_ARGON2D500] =  "argon2d500",
+    [ALGO_ARGON2D250] =  "argon2d250",
+    [ALGO_ARGON2D16000] = "argon2d16000",
     [ALGO_CRYPTONIGHT] = "cryptonight",
 };
 
@@ -247,6 +255,10 @@ Options:\n\
                           qubit        Qubit: DigiByte\n\
                           odo          Odocrypt: DigiByte\n\
                           neoscrypt    NeoScrypt: Feathercoin\n\
+                          argon2d4096  Argon2d, 4 MiB: Myriad, Unitus\n\
+                          argon2d500   Argon2d, 500 KiB: Dynamic\n\
+                          argon2d250   Argon2d, 250 KiB: Credits\n\
+                          argon2d16000 Argon2d, 16 MB: Alterdot\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -1865,6 +1877,10 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
     switch (opt_algo) {
     case ALGO_SCRYPT:
     case ALGO_NEOSCRYPT:
+    case ALGO_ARGON2D4096:
+    case ALGO_ARGON2D500:
+    case ALGO_ARGON2D250:
+    case ALGO_ARGON2D16000:
         diff_to_target(work->target, diff / (65536.0 * opt_diff_factor));
         break;
     case ALGO_FRESH:
@@ -2051,6 +2067,12 @@ static void *miner_thread(void *userdata) {
             case ALGO_NEOSCRYPT:
                 max64 = 0x3fff;
                 break;
+            case ALGO_ARGON2D4096:
+            case ALGO_ARGON2D500:
+            case ALGO_ARGON2D250:
+            case ALGO_ARGON2D16000:
+                max64 = 0x3ff;
+                break;
             case ALGO_FRESH:
             case ALGO_QUARK:
             case ALGO_X11:
@@ -2145,6 +2167,14 @@ static void *miner_thread(void *userdata) {
         case ALGO_NEOSCRYPT:
             rc = scanhash_neoscrypt(thr_id, work.data, work.target, max_nonce,
                     &hashes_done);
+            break;
+        case ALGO_ARGON2D4096:
+        case ALGO_ARGON2D500:
+        case ALGO_ARGON2D250:
+        case ALGO_ARGON2D16000:
+            rc = scanhash_argon2d(thr_id, work.data, work.target,
+                    ARGON2D_4096 + (opt_algo - ALGO_ARGON2D4096),
+                    max_nonce, &hashes_done);
             break;
         case ALGO_CRYPTONIGHT:
             rc = scanhash_cryptonight(thr_id, work.data, work.data_size,
@@ -2876,6 +2906,8 @@ int main(int argc, char *argv[]) {
 		applog(LOG_INFO, "AES-NI: %s", aes_ni_supported ? "yes" : "no (using portable AES)");
 	} else if (opt_algo == ALGO_NEOSCRYPT) {
 		applog(LOG_INFO, "NeoScrypt: using %s", neoscrypt_impl_name());
+	} else if (opt_algo >= ALGO_ARGON2D4096 && opt_algo <= ALGO_ARGON2D16000) {
+		applog(LOG_INFO, "Argon2d: using %s", argon2d_impl_name());
 	}
 
 

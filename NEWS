@@ -6,6 +6,10 @@ Algorithms
 - New: neoscrypt (Feathercoin), checked against real Feathercoin blocks;
   4 hashes at a time, 1.5 times as fast as Feathercoin Core's code with
   SSE2 or NEON, 3 times with AVX2 and 3.7 times with AVX-512.
+- New: argon2d4096 (Myriad, Unitus), argon2d500 (Dynamic), argon2d250
+  (Credits) and argon2d16000 (Alterdot), checked against RFC 9106 and
+  the reference implementation; with AVX2, 2.2 times as fast as the
+  reference implementation.
 - blake: shares are now valid for Blakecoin and the coins merge-mined
   with it (their transaction ids are single SHA-256).
 - skein: shares are checked against the real target (DigiByte); about

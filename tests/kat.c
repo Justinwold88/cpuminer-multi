@@ -6,6 +6,8 @@
  *  - x11: the Dash genesis block hash
  *  - sha256d, scrypt, skein, qubit, odo: real DigiByte blocks (block_vectors)
  *  - neoscrypt: real Feathercoin blocks, and Feathercoin Core's code
+ *  - argon2d*: RFC 9106's test vector, and the reference implementation
+ *    (as Myriad ships it)
  *  - odo: DigiByte Core's cipher test vectors, and its implementation for
  *    the synthetic headers
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
@@ -96,6 +98,19 @@ static void h_sha256d(void *out, const void *in) { sha256d(out, in, 80); }
 static void h_scrypt(void *out, const void *in) { scrypt_hash(out, in, 1024); }
 static void h_fresh(void *out, const void *in) { freshhash(out, in, 80); }
 
+/* Argon2d, each variant */
+#define ARGON2D_FNS(V, N) \
+static void h_argon2d##N(void *out, const void *in) { argon2d_hash(out, in, V); } \
+static int s_argon2d##N(int thr_id, uint32_t *pdata, const uint32_t *ptarget, \
+	uint32_t max_nonce, uint64_t *hashes_done) \
+{ \
+	return scanhash_argon2d(thr_id, pdata, ptarget, V, max_nonce, hashes_done); \
+}
+ARGON2D_FNS(ARGON2D_4096, 4096)
+ARGON2D_FNS(ARGON2D_500, 500)
+ARGON2D_FNS(ARGON2D_250, 250)
+ARGON2D_FNS(ARGON2D_16000, 16000)
+
 /* Odocrypt with the main network's key for the header's time, as odohash() */
 static int s_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 	uint32_t max_nonce, uint64_t *hashes_done)
@@ -107,70 +122,87 @@ static int s_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 
 static const struct {
 	const char *name;
+	bool sha;		/* uses SHA-256: tested with and without SHA-NI */
 	hash80_fn fn;
 	scan_fn scan;
 	const char *expected[N_HEADERS];	/* one per header above */
 } algos[] = {
-	{ "sha256d", h_sha256d, scanhash_sha256d, {
+	{ "sha256d", true, h_sha256d, scanhash_sha256d, {
 		"6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
 		"a4b09ec60478ce10b2bda154b349e5222e3b9a5fa8fdd9700fdd6eb044c49f08",
 		"a95394b3a0fe69387a1c35badd4fce9a6e69ff38ecd4a3410ebf3861b18cd1b0" } },
-	{ "scrypt", h_scrypt, s_scrypt, {
+	{ "scrypt", true, h_scrypt, s_scrypt, {
 		"59053665189c5d648b11d47540603441c1eee666291879db5eb8e604a0d65856",
 		"ac8d208a1c3f09932640257bed49f99ab191c6eced1c761c087dbce204c9ece8",
 		"46bb54095dbc520928360df81c491fd3ba6ecddeed05f5070aa37f6f431d3774" } },
-	{ "keccak", keccakhash, scanhash_keccak, {
+	{ "keccak", false, keccakhash, scanhash_keccak, {
 		"1288180027a46738fca19f18d5bf419ac78bfd9d90a62122bb93787fa842105e",
 		"20462a11d0b74f88b5d16cefa0fa2fb124f4f9e11e09a4f4b132f5785babda3f",
 		"d27207d5fa967489709a51afc3bef9d889bd4191393f7f1f13cf63f28a94b5c7" } },
-	{ "quark", quarkhash, scanhash_quark, {
+	{ "quark", false, quarkhash, scanhash_quark, {
 		"ed68b5108e55f5361f4dfbcfeb40d976dc540a51619bc34c2c6f5b132c7213b2",
 		"c608e6eefa3b298cfa864de5f71e0dc40d2ae8009d95b9c0a3d889c2a1d21a2b",
 		"0bf07abe4f44776ef799543a3d4e8ca39588f66012fb14847ad90ac7c5f2dd87" } },
-	{ "skein", skeinhash, scanhash_skein, {
+	{ "skein", true, skeinhash, scanhash_skein, {
 		"d020fec8cd79ad48e5dd62d99521a64835c5692f79d9e1bcbda33d6580ed1271",
 		"971c55d900af2196afa6e00d3345af017126f61186cef7fed25ae4510065f163",
 		"6c3a072e11f3eb7971c3104f74a4e3f76330fc0fd0115f4c6ef6f9bde7fc16cb" } },
-	{ "shavite3", inkhash, scanhash_ink, {
+	{ "shavite3", false, inkhash, scanhash_ink, {
 		"4213d207898171aa654c147cf8b6ae4c05f085da78ac45471e4dd7476114367e",
 		"2c5eae99b7dc0716001764f1a4233dcdbab7ca12db46267d7bd4cffda9b81eb3",
 		"9f82257a1ebd0d50bec720a15c1ca2bd8dba3b6c6ed4b430fbdea2c0f583c23f" } },
-	{ "blake", blakehash, scanhash_blake, {
+	{ "blake", false, blakehash, scanhash_blake, {
 		"7f2b62ef43531a0ba5b34ae0ccd07671a38651943ddfec09cc80e5fa3424742b",
 		"981c656a38986aea08eeecd4668d404c11c623b624c439bb51ad2ae4ed238c01",
 		"bca5c682aba75d351ba5b5361534694299dc34bd3cdadc564bf58922ae8cadf0" } },
-	{ "fresh", h_fresh, scanhash_fresh, {
+	{ "fresh", false, h_fresh, scanhash_fresh, {
 		"f16be95bcff8abdef61a6fe73217fec622c136ffb85b9139026f7da86c066128",
 		"8582ea22c018c2ac8317f231c09e8676e8c04a75a9475623d53d3fe843b17a52",
 		"bdefaab230a7c4307437a8761dd35a099ddede447f247a0589fbfda842242dfe" } },
-	{ "x11", x11hash, scanhash_x11, {
+	{ "x11", false, x11hash, scanhash_x11, {
 		"d90dbd33602755a7e3e6dab75b190405a73a596201a3db5af2172a0ac0153804",
 		"b67a40f3cd5804437a108f105533739c37e6229bc1adcab385140b59fd0f0000",
 		"a4ef5bc464437fafc7d54aec066a61a0ec016be327549655e35882c1fa7af88c" } },
-	{ "x13", x13hash, scanhash_x13, {
+	{ "x13", false, x13hash, scanhash_x13, {
 		"c99f91e5dbd8158a1cee67797044972094df0afc4d5140f270e2c6f9bba520be",
 		"bd7b68f858fceb974434d3147b27a05c4a4b8fad4cf1683c624acb3aff467564",
 		"d66440fffb1963f7a8da54c6fbedb492439ba82149882ef8c529faf739eda079" } },
-	{ "x14", x14hash, scanhash_x14, {
+	{ "x14", false, x14hash, scanhash_x14, {
 		"21bf0ddfe3117f203094cc1c8fc004fad4caf3e52141b52052b3419443a4328c",
 		"53508d81d8d927ebbc468974126918056cd9faf720bbce4825d74cd6466a724c",
 		"e9779dc652bc0d4e42151b89a96c33f1eb14b89d4870cd440e5536ca9bdee502" } },
-	{ "x15", x15hash, scanhash_x15, {
+	{ "x15", false, x15hash, scanhash_x15, {
 		"215d26975dfcbd0045cbb5f3ee611124e1eaa15952dd8be86801b4f20133ad69",
 		"a53723d85835af68793e08d00e3658f12ec476fe6f42121cd3b5c58e19386164",
 		"b63178162027734fb758332d696cfd74675a093aaf0d426818905b0b12438755" } },
-	{ "qubit", qubithash, scanhash_qubit, {
+	{ "qubit", false, qubithash, scanhash_qubit, {
 		"24b015e6b3c7d19e4a9b5ad7dce01bb589086e1fad098f8f3d891a3eca3ec641",
 		"f53c0bcbc5ba8db1792c74ea5a1eb7ee66783e24e4f4bffaccf591f86a49d842",
 		"1fd95112326c4118bdc8326ffb859513092b1aff568769aa1b304e7c5aaad095" } },
-	{ "odo", odohash, s_odo, {
+	{ "odo", false, odohash, s_odo, {
 		"ffdbde284c06c8187d104267fcf15228dc309299228daf62baa92b904c1048d3",
 		"74972069d57a94bc2a750e726944f2c52249534434c7411f1bcb201d5b1635a9",
 		"1dac4cbb5d3d1d1aed0f59d3469a4bf59173dfb320a0f36f002e23a4a9362b3e" } },
-	{ "neoscrypt", neoscrypt_hash, scanhash_neoscrypt, {
+	{ "neoscrypt", false, neoscrypt_hash, scanhash_neoscrypt, {
 		"d5565bd5b3875f583ca4eb212ea4ab15809f0895f0ff128bd1068da9e4bddb27",
 		"8f8eea00585b98a86599601ef37a5554161562086c6342f4d4e2fcddadae4deb",
 		"8c14059f6fde4f7f965164f22eb2ffdd14fed07551e192081d473b40b6a21ff8" } },
+	{ "argon2d4096", false, h_argon2d4096, s_argon2d4096, {
+		"209b8d5156e86decbf1c4976560c4e3f2ee1b146b5d955431ee403377b0ef8eb",
+		"efcf784b1ae5a95dd15a1c6a9b52fe44c59ecd6f966c2e6a3d8355b1b49bab5b",
+		"47a79c2c8d6290e319c187e32f1942e125c40aa65e7227d03b2453c2ba2a195c" } },
+	{ "argon2d500", false, h_argon2d500, s_argon2d500, {
+		"d63432f651456b36a27ee8c98e146b005c80e499d0931f2c9ca6ead68b3ff48f",
+		"effc9ced570f3dead9906e606dd77cfa06a76400e1a9fc0e6632b66056ffbc1b",
+		"0809cb55e03c7f642394f912b0a82ff840ae9844444394878510ddd8790e0118" } },
+	{ "argon2d250", false, h_argon2d250, s_argon2d250, {
+		"f4a2511de45745f14ca86031687a7e74f9ca3603959d88d6656112d922435f56",
+		"d9467200bbdd84684b6cb7dd4088ffe7ca3a30b0785960f933a9771a50e9e937",
+		"1748ece06fb1447f5868f0c2a13cdba60ab78182c90243db410567f0c20ce3e6" } },
+	{ "argon2d16000", false, h_argon2d16000, s_argon2d16000, {
+		"45d545f96a4d96344db68554279e8c865ed32e457539d853c9e9a7e48659d087",
+		"3be5bb6383840ca90f18b5704114cd83d9fbffc1b7e80b90febb0a6ece05d1dc",
+		"5304cf9ac518dd6fe2cdf3ad5be6a8556632ca0eeffd06e83e382eb8a3312e2f" } },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
@@ -539,7 +571,9 @@ int main(int argc, char **argv)
 				 sha256_vectors[v].input);
 			failures += check(what, hash, sha256_vectors[v].expected);
 		}
-		for (a = 0; a < N_ALGOS; a++)
+		for (a = 0; a < N_ALGOS; a++) {
+			if (impl && !algos[a].sha)
+				continue;
 			for (h = 0; h < N_HEADERS; h++) {
 				memset(hash, 0, sizeof(hash));
 				algos[a].fn(hash, header[h]);
@@ -547,10 +581,13 @@ int main(int argc, char **argv)
 					 algos[a].name, name, h);
 				failures += check(what, hash, algos[a].expected[h]);
 			}
+		}
 		for (v = 0; v < sizeof(block_vectors) / sizeof(block_vectors[0]); v++)
-			failures += block_test(v, name);
+			if (!impl || algos[find_algo(block_vectors[v].algo)].sha)
+				failures += block_test(v, name);
 		for (a = 0; a < N_ALGOS; a++)
-			failures += scan_test(a, header[2]);
+			if (!impl || algos[a].sha)
+				failures += scan_test(a, header[2]);
 	}
 	sha256_use_shani(true);
 
@@ -624,6 +661,50 @@ int main(int argc, char **argv)
 			failures += scan_test(neo, header[2]);
 		}
 		neoscrypt_use_impl(-1);
+	}
+
+	/* Argon2d: RFC 9106's test vector, and every implementation this
+	 * processor can run (the best one ran above) */
+	{
+		static const char *const impl_names[] = { "plain", "AVX2" };
+		static const char *const variants[] = {
+			"argon2d4096", "argon2d500", "argon2d250", "argon2d16000"
+		};
+		uint8_t pwd[32], salt[16], secret[8], ad[12];
+		int best = argon2d_use_impl(-1);
+
+		memset(pwd, 1, sizeof(pwd));
+		memset(salt, 2, sizeof(salt));
+		memset(secret, 3, sizeof(secret));
+		memset(ad, 4, sizeof(ad));
+		for (int impl = best; impl >= 0; impl--) {
+			char label[32];
+
+			if (argon2d_use_impl(impl) != impl) {
+				printf("skip argon2d (%s): not for this processor or build\n",
+				       impl_names[impl]);
+				continue;
+			}
+			snprintf(label, sizeof(label), " (%s)", impl_names[impl]);
+			argon2d_raw(hash, 32, pwd, 32, salt, 16, secret, 8, ad, 12,
+				    3, 32, 4, 0x13);
+			snprintf(what, sizeof(what), "argon2d%s RFC 9106", label);
+			failures += check(what, hash,
+				"512b391b6f1162975371d30919734294f868e3be3984f3c1a13a4db9fabe4acb");
+			if (impl == best)
+				continue;
+			for (v = 0; v < sizeof(variants) / sizeof(variants[0]); v++) {
+				a = find_algo(variants[v]);
+				for (h = 0; h < N_HEADERS; h++) {
+					algos[a].fn(hash, header[h]);
+					snprintf(what, sizeof(what), "%s%s header #%zu",
+						 algos[a].name, label, h);
+					failures += check(what, hash, algos[a].expected[h]);
+				}
+			}
+			failures += scan_test(find_algo("argon2d4096"), header[2]);
+		}
+		argon2d_use_impl(-1);
 	}
 
 	printf("%d failure(s)\n", failures);

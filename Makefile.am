@@ -38,6 +38,8 @@ libalgos_a_SOURCES = \
 		  qubit.c \
 		  odocrypt.c \
 		  neoscrypt.c \
+		  argon2d.c \
+		  cpu-features.c \
 		  sha3/sph_keccak.c \
 		  sha3/sph_groestl.c \
 		  sha3/sph_skein.c \

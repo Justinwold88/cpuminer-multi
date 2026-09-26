@@ -400,32 +400,6 @@ typedef uint8_t neo_u8x32 __attribute__((vector_size(32)));
 
 enum { NEO_IMPL_GENERIC, NEO_IMPL_SSE2, NEO_IMPL_AVX2, NEO_IMPL_AVX512 };
 
-#if defined(NEO_SSE2) || defined(NEO_AVX2)
-#include <cpuid.h>
-
-static bool neo_cpu_has(int impl)
-{
-	unsigned int eax, ebx, ecx, edx, xcr0_lo = 0, xcr0_hi = 0;
-
-	if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx))
-		return false;
-	if (impl == NEO_IMPL_SSE2)
-		return (edx & (1u << 26)) != 0;
-	/* AVX: the processor has it and the system saves its registers */
-	if (!(ecx & (1u << 27)) || !(ecx & (1u << 28)))
-		return false;
-	__asm__ ("xgetbv" : "=a" (xcr0_lo), "=d" (xcr0_hi) : "c" (0));
-	if ((xcr0_lo & 0x6) != 0x6 || __get_cpuid_max(0, NULL) < 7)
-		return false;
-	__cpuid_count(7, 0, eax, ebx, ecx, edx);
-	if (impl == NEO_IMPL_AVX2)
-		return (ebx & (1u << 5)) != 0;
-	/* AVX-512F and VL, with the mask and upper ZMM registers saved */
-	return (ebx & (1u << 5)) && (ebx & (1u << 16)) && (ebx & (1u << 31))
-		&& (xcr0_lo & 0xe0) == 0xe0;
-}
-#endif
-
 static bool neo_supported(int impl)
 {
 	switch (impl) {
@@ -433,12 +407,13 @@ static bool neo_supported(int impl)
 		return true;
 #ifdef NEO_SSE2
 	case NEO_IMPL_SSE2:
-		return neo_cpu_has(impl);
+		return cpu_has_sse2();
 #endif
 #ifdef NEO_AVX2
 	case NEO_IMPL_AVX2:
+		return cpu_has_avx2();
 	case NEO_IMPL_AVX512:
-		return neo_cpu_has(impl);
+		return cpu_has_avx512vl();
 #endif
 	default:
 		return false;

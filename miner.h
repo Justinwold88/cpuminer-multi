@@ -210,6 +210,23 @@ extern int scanhash_qubit(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 extern int scanhash_neoscrypt(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 extern int neoscrypt_use_impl(int impl);
+
+/* instruction set extensions, for code that picks one at run time */
+extern bool cpu_has_sse2(void);
+extern bool cpu_has_avx2(void);
+extern bool cpu_has_avx512vl(void);
+
+/* Argon2d variants */
+enum { ARGON2D_4096, ARGON2D_500, ARGON2D_250, ARGON2D_16000 };
+extern void argon2d_hash(void *output, const void *input, int variant);
+extern int argon2d_use_impl(int impl);
+extern const char *argon2d_impl_name(void);
+extern int argon2d_raw(void *out, uint32_t outlen, const void *pwd, uint32_t pwdlen,
+	const void *salt, uint32_t saltlen, const void *secret, uint32_t secretlen,
+	const void *ad, uint32_t adlen, uint32_t t_cost, uint32_t m_cost,
+	uint32_t lanes, uint32_t version);
+extern int scanhash_argon2d(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+                            int variant, uint32_t max_nonce, uint64_t *hashes_done);
 extern const char *neoscrypt_impl_name(void);
 
 /* Odocrypt (DigiByte): the key is the block time rounded down to a whole
