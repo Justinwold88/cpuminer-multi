@@ -20,7 +20,6 @@ libalgos_a_SOURCES = \
 		  sha2.c \
 		  scrypt.c \
 		  keccak.c \
-		  heavy.c \
 		  quark.c \
 		  skein.c \
 		  ink.c \
@@ -32,7 +31,6 @@ libalgos_a_SOURCES = \
 		  x14.c \
 		  x15.c \
 		  sha3/sph_keccak.c \
-		  sha3/sph_hefty1.c \
 		  sha3/sph_groestl.c \
 		  sha3/sph_skein.c \
 		  sha3/sph_bmw.c \

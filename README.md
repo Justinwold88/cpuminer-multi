@@ -32,7 +32,6 @@ Algorithms
 
 #### Implemented, but untested
  * ? keccak (Maxcoin  HelixCoin, CryptoMeth, Galleon, 365coin, Slothcoin, BitcointalkCoin)
- * ? hefty1 (Heavycoin)
  * ? quark (Quarkcoin)
  * ? skein (Skeincoin, Myriadcoin)
  * ? shavite3 (INKcoin)

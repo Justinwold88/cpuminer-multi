@@ -103,7 +103,6 @@ enum algos {
     ALGO_SCRYPT,      /* scrypt(1024,1,1) */
     ALGO_SHA256D,     /* SHA-256d */
     ALGO_KECCAK,      /* Keccak */
-    ALGO_HEAVY,       /* Heavy */
     ALGO_QUARK,       /* Quark */
     ALGO_SKEIN,       /* Skein */
     ALGO_SHAVITE3,    /* Shavite3 */
@@ -120,7 +119,6 @@ static const char *algo_names[] = {
     [ALGO_SCRYPT] =      "scrypt",
     [ALGO_SHA256D] =     "sha256d",
     [ALGO_KECCAK] =      "keccak",
-    [ALGO_HEAVY] =       "heavy",
     [ALGO_QUARK] =       "quark",
     [ALGO_SKEIN] =       "skein",
     [ALGO_SHAVITE3] =    "shavite3",
@@ -205,7 +203,6 @@ Options:\n\
                           sha256d      SHA-256d\n\
                           keccak       Keccak\n\
                           quark        Quark\n\
-                          heavy        Heavy\n\
                           skein        Skein\n\
                           shavite3     Shavite3\n\
                           blake        Blake\n\
@@ -1169,11 +1166,6 @@ static void *miner_thread(void *userdata) {
 
         case ALGO_KECCAK:
             rc = scanhash_keccak(thr_id, work.data, work.target, max_nonce,
-                    &hashes_done);
-            break;
-
-        case ALGO_HEAVY:
-            rc = scanhash_heavy(thr_id, work.data, work.target, max_nonce,
                     &hashes_done);
             break;
 
