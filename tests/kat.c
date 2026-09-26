@@ -149,6 +149,20 @@ static const struct {
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
+/* FIPS 180-2 SHA-256 test vectors (the last one needs two blocks, and
+ * one with 55 bytes, the most that fits in one block with its padding) */
+static const struct {
+	const char *input;
+	const char *expected;
+} sha256_vectors[] = {
+	{ "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+	{ "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+	{ "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+	  "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+	{ "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+	  "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1" },
+};
+
 /* CryptoNote "slow hash" vectors (variable-length input) */
 static const struct {
 	const char *input;
@@ -372,16 +386,34 @@ int main(int argc, char **argv)
 		if (parse_hex(header_hex[h], header[h], 80) != 80)
 			return 2;
 
-	for (a = 0; a < N_ALGOS; a++)
-		for (h = 0; h < N_HEADERS; h++) {
-			memset(hash, 0, sizeof(hash));
-			algos[a].fn(hash, header[h]);
-			snprintf(what, sizeof(what), "%s header #%zu", algos[a].name, h);
-			failures += check(what, hash, algos[a].expected[h]);
-		}
+	/* everything built on SHA-256 twice: with the portable code, and
+	 * with the x86 SHA extensions when the CPU has them */
+	for (int impl = 0; impl < 2; impl++) {
+		const char *name = impl ? " (SHA-NI)" : "";
 
-	for (a = 0; a < N_ALGOS; a++)
-		failures += scan_test(a, header[2]);
+		if (sha256_use_shani(impl) != impl) {
+			printf("skip SHA-256 (SHA-NI): this CPU or build has no SHA extensions\n");
+			break;
+		}
+		for (v = 0; v < sizeof(sha256_vectors) / sizeof(sha256_vectors[0]); v++) {
+			sha256_hash(hash, (const unsigned char *) sha256_vectors[v].input,
+				    (int) strlen(sha256_vectors[v].input));
+			snprintf(what, sizeof(what), "sha256%s \"%.20s\"", name,
+				 sha256_vectors[v].input);
+			failures += check(what, hash, sha256_vectors[v].expected);
+		}
+		for (a = 0; a < N_ALGOS; a++)
+			for (h = 0; h < N_HEADERS; h++) {
+				memset(hash, 0, sizeof(hash));
+				algos[a].fn(hash, header[h]);
+				snprintf(what, sizeof(what), "%s%s header #%zu",
+					 algos[a].name, name, h);
+				failures += check(what, hash, algos[a].expected[h]);
+			}
+		for (a = 0; a < N_ALGOS; a++)
+			failures += scan_test(a, header[2]);
+	}
+	sha256_use_shani(true);
 
 	/* both CryptoNight implementations: portable C, and AES-NI when the
 	 * CPU has it */
