@@ -182,6 +182,14 @@ bool aes_ni_supported = false;
  * zero-filled mutex is not a valid mutex everywhere (e.g. winpthreads). */
 pthread_mutex_t applog_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Shares handed to the workio thread but not sent yet. The queue is bounded
+ * so that a pool setting an absurdly low difficulty (every hash a share)
+ * cannot make the miner threads queue shares faster than they can be sent
+ * until memory runs out. Protected by stats_lock. */
+#define MAX_PENDING_SHARES 256
+static int pending_shares;
+
 static pthread_mutex_t rpc2_job_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t rpc2_login_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -646,6 +654,29 @@ static char *rpc2_submit_req(const struct work *work)
     return req;
 }
 
+/* A share is stale once the block it builds on is no longer the tip. That
+ * is the previous-block hash: words 1-8 of a block header, bytes 7-38 of a
+ * CryptoNote blob (major version, minor version and a 5-byte timestamp come
+ * first; the nonce follows at byte 39). Other job changes, such as a new
+ * timestamp or new transactions, leave older shares valid. */
+static bool share_is_stale(const struct work *work)
+{
+    bool stale;
+
+    /* In getwork mode a miner thread can hold g_work_lock while it waits
+     * for this (workio) thread, so only lock it in stratum mode. */
+    if (have_stratum)
+        pthread_mutex_lock(&g_work_lock);
+    if (jsonrpc_2)
+        stale = memcmp((const unsigned char *) work->data + 7,
+                (const unsigned char *) g_work.data + 7, 32) != 0;
+    else
+        stale = memcmp(work->data + 1, g_work.data + 1, 32) != 0;
+    if (have_stratum)
+        pthread_mutex_unlock(&g_work_lock);
+    return stale;
+}
+
 static bool submit_upstream_work(CURL *curl, struct work *work) {
     char *str = NULL;
     json_t *val, *res, *reason;
@@ -654,7 +685,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work) {
     bool rc = false;
 
     /* pass if the previous hash is not the current previous hash */
-    if (!submit_old && memcmp(work->data + 1, g_work.data + 1, 32)) {
+    if (!submit_old && share_is_stale(work)) {
         if (opt_debug)
             applog(LOG_DEBUG, "DEBUG: stale work detected, discarding");
         return true;
@@ -950,6 +981,9 @@ static void *workio_thread(void *userdata) {
             break;
         case WC_SUBMIT_WORK:
             ok = workio_submit_work(wc, curl);
+            pthread_mutex_lock(&stats_lock);
+            pending_shares--;
+            pthread_mutex_unlock(&stats_lock);
             break;
 
         default: /* should never happen */
@@ -1008,12 +1042,29 @@ static bool get_work(struct thr_info *thr, struct work *work) {
 }
 
 static bool submit_work(struct thr_info *thr, const struct work *work_in) {
+    static time_t last_warning;
     struct workio_cmd *wc;
+    bool drop, warn = false;
+
+    pthread_mutex_lock(&stats_lock);
+    drop = pending_shares >= MAX_PENDING_SHARES;
+    if (!drop)
+        pending_shares++;
+    else if (time(NULL) - last_warning >= 10) {
+        time(&last_warning);
+        warn = true;
+    }
+    pthread_mutex_unlock(&stats_lock);
+    if (drop) {
+        if (warn)
+            applog(LOG_WARNING, "Too many shares waiting to be sent, dropping shares");
+        return true;
+    }
 
     /* fill out work request message */
     wc = calloc(1, sizeof(*wc));
     if (!wc)
-        return false;
+        goto err_out;
 
     wc->u.work = malloc(sizeof(*work_in));
     if (!wc->u.work)
@@ -1030,6 +1081,9 @@ static bool submit_work(struct thr_info *thr, const struct work *work_in) {
     return true;
 
     err_out: workio_cmd_free(wc);
+    pthread_mutex_lock(&stats_lock);
+    pending_shares--;
+    pthread_mutex_unlock(&stats_lock);
     return false;
 }
 
