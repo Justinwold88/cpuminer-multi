@@ -164,6 +164,11 @@ supported. A coin whose node requires a rule this miner does not implement
 (Litecoin's MWEB, for example) is refused with a message: mine it through a
 pool. Dash-style masternode payments are not supported either.
 
+DigiByte's node makes block templates for one of its algorithms at a time
+(its `algo=` setting, scrypt by default); the miner asks it for the one it
+mines (`sha256d`, `scrypt`, `skein` or `qubit`), so the node needs no
+particular setting.
+
 Servers that only speak getwork, the protocol getblocktemplate replaced, are
 still supported; `--no-gbt` and `--no-getwork` choose between the two.
 

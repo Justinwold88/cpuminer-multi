@@ -19,7 +19,8 @@ Algorithms
 Mining
 - Solo mining with getblocktemplate (--coinbase-addr, --coinbase-sig):
   segwit, BIP 34, long polling; getwork kept as a fallback (--no-gbt,
-  --no-getwork).
+  --no-getwork). A DigiByte node is asked for a template for the
+  algorithm being mined.
 - minerd exits with status 1 when it gives up (a fatal error, or
   --retries failures in a row), so a service manager can tell.
 - Stratum: every message from the pool is validated; no more mining a

@@ -30,6 +30,8 @@ is active, the witness commitment (BIP 141).
 It asks the node (validateaddress) which output script pays to that address.
 A node that requires a rule \fBminerd\fR does not implement
 (such as Litecoin's MWEB) is refused with a message.
+The node of a coin with several algorithms (DigiByte) is asked for a
+template for the algorithm being mined.
 .PP
 By default, \fBminerd\fR writes all its messages to standard error.
 On systems that have a syslog, the \fB\-\-syslog\fR option can be used

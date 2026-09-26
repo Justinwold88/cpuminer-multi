@@ -144,6 +144,8 @@ _Atomic bool have_stratum = false;
 static _Atomic bool submit_old = false;
 _Atomic bool have_gbt = true;	/* HTTP: try getblocktemplate before getwork */
 static bool allow_getwork = true;
+/* the node mines several algorithms (DigiByte): name ours in requests */
+static _Atomic bool gbt_name_algo = false;
 static char *opt_coinbase_addr;	/* getblocktemplate: where the block reward goes */
 static char coinbase_sig[101] = "";
 static unsigned char pk_script[128];	/* ... as an output script */
@@ -712,6 +714,23 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
             coinbase_append = true;
     }
 
+    /* A node of a coin with several algorithms (DigiByte) makes templates
+     * for one of them, named in "pow_algo" (and in the version bits): its
+     * default one, unless the request names another. */
+    tmp = json_object_get(val, "pow_algo");
+    if (json_is_string(tmp) && strcmp(json_string_value(tmp), algo_names[opt_algo])) {
+        if (!gbt_name_algo) {
+            applog(LOG_INFO, "The node made a %s block template: asking for %s",
+                    json_string_value(tmp), algo_names[opt_algo]);
+            gbt_name_algo = true;
+        } else {
+            applog(LOG_ERR, "The node cannot make %s block templates (it made a %s one)",
+                    algo_names[opt_algo], json_string_value(tmp));
+            fatal_error = true;
+        }
+        return false;
+    }
+
     if (!jobj_int(val, "height", 1, 0x7fffffff, &height)
             || !jobj_int(val, "version", 0, 0xffffffffLL, &version)
             || !jobj_int(val, "curtime", 0, 0xffffffffLL, &curtime))
@@ -1016,6 +1035,10 @@ static char *gbt_request(const char *longpollid)
         json_object_set_new(params, "longpollid", json_string(longpollid));
     req = json_pack("{s:s, s:[o], s:i}", "method", "getblocktemplate",
             "params", params, "id", 0);
+    /* DigiByte: the algorithm, as the second parameter */
+    if (req && gbt_name_algo)
+        json_array_append_new(json_object_get(req, "params"),
+                json_string(algo_names[opt_algo]));
     s = req ? json_dumps(req, 0) : NULL;
     json_decref(req);
     return s;
@@ -1436,8 +1459,12 @@ start:
     if (jsonrpc_2 || !have_gbt)
         rc = work_decode(json_object_get(val, "result"), work);
     else {
+        bool named = gbt_name_algo;
+
         rc = gbt_work_decode(json_object_get(val, "result"), work);
-        if (!have_gbt) {	/* no payout address: switched to getwork */
+        /* switched to getwork (no payout address), or to naming our
+         * algorithm: ask again */
+        if (!have_gbt || (!rc && !named && gbt_name_algo)) {
             json_decref(val);
             goto start;
         }
