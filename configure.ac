@@ -1,23 +1,25 @@
-AC_INIT([cpuminer], [1.0.4])
-
-AC_PREREQ([2.59c])
-AC_CANONICAL_SYSTEM
+AC_PREREQ([2.69])
+AC_INIT([cpuminer-multi], [1.1.0-dev],
+	[https://github.com/Justinwold88/cpuminer-multi/issues],
+	[cpuminer-multi],
+	[https://github.com/Justinwold88/cpuminer-multi])
 AC_CONFIG_SRCDIR([cpu-miner.c])
+AC_CONFIG_AUX_DIR([build-aux])
+AC_CANONICAL_HOST
 AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_HEADERS([cpuminer-config.h])
 
-dnl Make sure anyone changing configure.ac/Makefile.am has a clue
-AM_MAINTAINER_MODE
+m4_ifndef([PKG_PROG_PKG_CONFIG],
+	[m4_fatal([pkg.m4 is missing: install pkg-config (or pkgconf) and re-run ./autogen.sh])])
 
 dnl Checks for programs
-AC_PROG_CC_C99
-AC_PROG_GCC_TRADITIONAL
-AM_PROG_CC_C_O
+AC_PROG_CC
 AM_PROG_AS
+AM_PROG_AR
 AC_PROG_RANLIB
+PKG_PROG_PKG_CONFIG
 
 dnl Checks for header files
-AC_HEADER_STDC
 AC_CHECK_HEADERS([sys/endian.h sys/param.h syslog.h])
 # sys/sysctl.h requires sys/types.h on FreeBSD
 # sys/sysctl.h requires sys/param.h on OpenBSD
@@ -38,23 +40,31 @@ AC_CHECK_DECLS([be32dec, le32dec, be32enc, le32enc], [], [],
 AC_FUNC_ALLOCA
 AC_CHECK_FUNCS([getopt_long])
 
-case $target in
-  i*86-*-*)
+dnl Target CPU and OS (the machine the miner will run on is $host)
+have_x86=false
+have_x86_64=false
+have_arm=false
+have_aarch64=false
+case $host_cpu in
+  i?86)
     have_x86=true
     ;;
-  x86_64-*-*|amd64-*-*)
+  x86_64|amd64)
     have_x86_64=true
     ;;
-  arm*-*-*)
+  aarch64|arm64)
+    have_aarch64=true
+    ;;
+  arm*)
     have_arm=true
     ;;
 esac
 
+have_win32=false
 PTHREAD_FLAGS="-pthread"
 WS2_LIBS=""
-
-case $target in
-  *-*-mingw*)
+case $host_os in
+  mingw*|cygwin*|msys*)
     have_win32=true
     PTHREAD_FLAGS=""
     WS2_LIBS="-lws2_32"
@@ -63,11 +73,11 @@ esac
 
 AC_ARG_ENABLE([assembly],
   AS_HELP_STRING([--disable-assembly], [disable assembly-language routines]))
-if test x$enable_assembly != xno; then
+if test "x$enable_assembly" != xno; then
   AC_DEFINE([USE_ASM], [1], [Define to 1 if assembly routines are wanted.])
 fi
 
-if test x$enable_assembly != xno -a x$have_x86_64 = xtrue
+if test "x$enable_assembly" != xno && test "x$have_x86_64" = xtrue
 then
   AC_MSG_CHECKING(whether we can compile AVX code)
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[asm ("vmovdqa %ymm0, %ymm1");])],
@@ -102,7 +112,7 @@ AC_CHECK_LIB([pthread], [pthread_create], PTHREAD_LIBS="-lpthread",
       AC_CHECK_LIB([pthreadGC], [pthread_create], PTHREAD_LIBS="-lpthreadGC"
 ))))
 
-AC_CHECK_LIB([crypto], [OPENSSL_init], [], [AC_MSG_FAILURE([could not find crypto])])
+AC_CHECK_LIB([crypto], [SHA256_Init], [], [AC_MSG_FAILURE([could not find crypto])])
 
 AC_MSG_CHECKING(whether __uint128_t is supported)
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([static __uint128_t i = 100;])],
@@ -112,12 +122,15 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([static __uint128_t i = 100;])],
       AC_MSG_RESULT(no)
 )
 
+PKG_CHECK_MODULES([LIBCURL], [libcurl >= 7.15.2])
+
 AM_CONDITIONAL([WANT_JANSSON], [test x$request_jansson = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([USE_ASM], [test x$enable_assembly != xno])
 AM_CONDITIONAL([ARCH_x86], [test x$have_x86 = xtrue])
 AM_CONDITIONAL([ARCH_x86_64], [test x$have_x86_64 = xtrue])
 AM_CONDITIONAL([ARCH_ARM], [test x$have_arm = xtrue])
+AM_CONDITIONAL([ARCH_AARCH64], [test x$have_aarch64 = xtrue])
 
 if test x$request_jansson = xtrue
 then
@@ -125,9 +138,6 @@ then
 else
 	JANSSON_LIBS=-ljansson
 fi
-
-LIBCURL_CHECK_CONFIG(, 7.15.2, ,
-  [AC_MSG_ERROR([Missing required libcurl >= 7.15.2])])
 
 AC_SUBST(JANSSON_LIBS)
 AC_SUBST(PTHREAD_FLAGS)

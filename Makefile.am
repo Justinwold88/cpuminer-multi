@@ -5,21 +5,18 @@ else
 JANSSON_INCLUDES=
 endif
 
-EXTRA_DIST	= example-cfg.json nomacro.pl
+EXTRA_DIST	= autogen.sh example-cfg.json nomacro.pl
 
 SUBDIRS		= compat
 
-INCLUDES	= $(PTHREAD_FLAGS) -fno-strict-aliasing $(JANSSON_INCLUDES)
+AM_CPPFLAGS	= $(JANSSON_INCLUDES) $(LIBCURL_CFLAGS)
+AM_CFLAGS	= $(PTHREAD_FLAGS) -fno-strict-aliasing
 
-bin_PROGRAMS	= minerd
+# All proof-of-work code lives in one library so that the miner and the
+# test programs link exactly the same objects.
+noinst_LIBRARIES = libalgos.a
 
-dist_man_MANS	= minerd.1
-
-minerd_SOURCES	= elist.h \
-		  miner.h \
-		  compat.h \
-		  cpu-miner.c \
-		  util.c \
+libalgos_a_SOURCES = \
 		  sha2.c \
 		  scrypt.c \
 		  keccak.c \
@@ -58,19 +55,28 @@ minerd_SOURCES	= elist.h \
 		  crypto/c_skein.c \
 		  crypto/hash.c \
 		  crypto/aesb.c
+
 if USE_ASM
 if ARCH_x86
-minerd_SOURCES += sha2-x86.S scrypt-x86.S aesb-x86.S crypto/aesb-x86-impl.c
+libalgos_a_SOURCES += sha2-x86.S scrypt-x86.S aesb-x86.S crypto/aesb-x86-impl.c
 endif
 if ARCH_x86_64
-minerd_SOURCES += sha2-x64.S scrypt-x64.S aesb-x64.S
+libalgos_a_SOURCES += sha2-x64.S scrypt-x64.S aesb-x64.S
 endif
 if ARCH_ARM
-minerd_SOURCES += sha2-arm.S scrypt-arm.S aesb-arm.S crypto/aesb-x86-impl.c
+libalgos_a_SOURCES += sha2-arm.S scrypt-arm.S aesb-arm.S crypto/aesb-x86-impl.c
 endif
 endif
 
+bin_PROGRAMS	= minerd
+
+dist_man_MANS	= minerd.1
+
+minerd_SOURCES	= elist.h \
+		  miner.h \
+		  compat.h \
+		  cpu-miner.c \
+		  util.c
+
 minerd_LDFLAGS	= $(PTHREAD_FLAGS)
-minerd_LDADD	= @LIBCURL@ @JANSSON_LIBS@ @PTHREAD_LIBS@ @WS2_LIBS@
-minerd_CPPFLAGS = @LIBCURL_CPPFLAGS@
-minerd_CFLAGS   = -Ofast -flto -fuse-linker-plugin
+minerd_LDADD	= libalgos.a $(LIBCURL_LIBS) $(JANSSON_LIBS) $(PTHREAD_LIBS) $(WS2_LIBS)
