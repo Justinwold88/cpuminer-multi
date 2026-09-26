@@ -2955,10 +2955,12 @@ int main(int argc, char *argv[]) {
 	applog(LOG_INFO, "%d miner threads started, "
 			"using '%s' algorithm.", opt_n_threads, algo_names[opt_algo]);
 
-	/* main loop - simply wait for workio thread to exit */
+	/* main loop - simply wait for workio thread to exit, which it only
+	 * does when it gives up (a fatal error, or --retries exhausted);
+	 * signals end the program in the signal thread */
 	pthread_join(thr_info[work_thr_id].pth, NULL );
 
 	applog(LOG_INFO, "workio thread dead, exiting.");
 
-	return 0;
+	return 1;
 }
