@@ -33,6 +33,7 @@ Algorithms
 | `blake` | Blakecoin, and the coins merge-mined with it (Photon, Electron, Universal Molecule, Lithium, BlakeBitcoin) | works (fixed in this fork) |
 | `skein` | DigiByte (Skein) | works (fixed in this fork) |
 | `qubit` | DigiByte (Qubit) | works (new in this fork) |
+| `odo` | DigiByte (Odocrypt) | works (new in this fork) |
 | `cryptonight` | Bytecoin and other coins on the original CryptoNight | works (fixed in this fork) |
 | `scrypt:N` | scrypt with N other than 1024 (Vertcoin used it until 2014) | legacy |
 | `keccak` | Maxcoin | legacy |
@@ -50,8 +51,8 @@ today, so a CPU earns next to nothing on them. They are useful for testing
 and for testnets.
 
 Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
-and Myriad moved to other algorithms too. Planned: RandomX, DigiByte's
-Odocrypt, NeoScrypt, Verthash, Argon2d and Yescrypt.
+and Myriad moved to other algorithms too. Planned: RandomX, NeoScrypt,
+Verthash, Argon2d and Yescrypt.
 
 Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
 broken) and the unused scrypt-jane sources.
@@ -166,7 +167,7 @@ pool. Dash-style masternode payments are not supported either.
 
 DigiByte's node makes block templates for one of its algorithms at a time
 (its `algo=` setting, scrypt by default); the miner asks it for the one it
-mines (`sha256d`, `scrypt`, `skein` or `qubit`), so the node needs no
+mines (`sha256d`, `scrypt`, `skein`, `qubit` or `odo`), so the node needs no
 particular setting.
 
 Servers that only speak getwork, the protocol getblocktemplate replaced, are
@@ -175,6 +176,13 @@ still supported; `--no-gbt` and `--no-getwork` choose between the two.
 #### CryptoNight
 
     minerd -a cryptonight -o stratum+tcp://pool.example.com:3333 -u WALLET_ADDRESS -p x
+
+#### Odocrypt
+
+Odocrypt changes its cipher every 10 days: its key is the block time rounded
+down to a multiple of 10 days. Solo mining uses the key the node gives, so
+it works on every DigiByte network; with a pool, the key comes from the
+block time with the main network's period (testnet's is 1 day).
 
 #### Benchmark
 

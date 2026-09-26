@@ -4,7 +4,9 @@
  * Every expected value was cross-checked against an independent source:
  *  - sha256d, scrypt: Python's hashlib
  *  - x11: the Dash genesis block hash
- *  - sha256d, scrypt, skein, qubit: real DigiByte blocks (block_vectors)
+ *  - sha256d, scrypt, skein, qubit, odo: real DigiByte blocks (block_vectors)
+ *  - odo: DigiByte Core's cipher test vectors, and its implementation for
+ *    the synthetic headers
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
  *  - all other sph-based algorithms: tpruvot/cpuminer-multi
  *
@@ -93,6 +95,15 @@ static void h_sha256d(void *out, const void *in) { sha256d(out, in, 80); }
 static void h_scrypt(void *out, const void *in) { scrypt_hash(out, in, 1024); }
 static void h_fresh(void *out, const void *in) { freshhash(out, in, 80); }
 
+/* Odocrypt with the main network's key for the header's time, as odohash() */
+static int s_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+	uint32_t max_nonce, uint64_t *hashes_done)
+{
+	return scanhash_odo(thr_id, pdata, ptarget,
+			    odo_key(swab32(pdata[17]), ODO_INTERVAL_MAINNET),
+			    max_nonce, hashes_done);
+}
+
 static const struct {
 	const char *name;
 	hash80_fn fn;
@@ -151,6 +162,10 @@ static const struct {
 		"24b015e6b3c7d19e4a9b5ad7dce01bb589086e1fad098f8f3d891a3eca3ec641",
 		"f53c0bcbc5ba8db1792c74ea5a1eb7ee66783e24e4f4bffaccf591f86a49d842",
 		"1fd95112326c4118bdc8326ffb859513092b1aff568769aa1b304e7c5aaad095" } },
+	{ "odo", odohash, s_odo, {
+		"ffdbde284c06c8187d104267fcf15228dc309299228daf62baa92b904c1048d3",
+		"74972069d57a94bc2a750e726944f2c52249534434c7411f1bcb201d5b1635a9",
+		"1dac4cbb5d3d1d1aed0f59d3469a4bf59173dfb320a0f36f002e23a4a9362b3e" } },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
@@ -185,6 +200,38 @@ static const struct {
 	  "000000009760d9bc89809f459161fecfe70c46673aac2f2980df4143e46029be"
 	  "2f2cff55c313c85fe7d2001b89c70c09",
 	  "0000000000003fae858e91a5636704d4f1aa665db53c0cddf175b9cc5ecf9a86" },
+	{ "DigiByte block 11999995", "odo",
+	  "020e00203670628c63869e9135e07a4d3dea0f9d4e2a203848236d8c01000000"
+	  "00000000965873e67854ef5a56dc315911f26c4222d2bd2c9741fc1ed1c5254e"
+	  "cf11136cae13c85fd061181af8a005a6",
+	  "000000000000072b3027c9ade646147ae57d1bab5cd6c1b2bfde9d7423bf2a50" },
+};
+
+/* DigiByte Core's Odocrypt cipher vectors (src/test/crypto_tests.cpp);
+ * NULL input: 80 bytes of its LongTestString() from offset 0x4ffb0 */
+static const struct {
+	uint32_t key;
+	const char *input;
+	const char *expected;
+} odo_vectors[] = {
+	{ 0, "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+	  "9724ebfef40d7808bc21b212d8645a1df4d7fc4a0d91ee8e7f747ca1383eaeb1bb264b3a3b1b1f19"
+	  "a8d458616e9a19572e3ceb2f58773076e829a288c8fdb61ab619ffaa84a4ee752fea52dbb359620e" },
+	{ 1, "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+	  "c659c70bd9335a0bec67e526cdf99569543ca7e258fad19d439fb8ada1bc68efa5553d270d236cf0"
+	  "3b1c179c684cfc93ae15b3c239c11e384303785cc0d828114c28e08091f42ec707aba712fe999c68" },
+	{ 0x80808080u, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopqopqrpqrsqrstrstustuvtuvw",
+	  "dc5d9757b16bfa425f527817ee88a070595a662474d06bb96b439e25bc3097fc7068ab9d934fcd19"
+	  "c9587478dd9ab8f79f2c85175c51e49306135e561561725b0aa7a44366a1135ff93194da22d1e9ba" },
+	{ 0x12345678, "As DigiByte relies on 80 byte header hashes, we want to have an example for that",
+	  "13dddebb0d65daa0f3e4a5bd9a1b74af7ca5a7b32ef118fb1684b200e377ce504346adcd2354e818"
+	  "bf530dd870386104f706f4fecde1cec5cee804aae2569821aa5b2db3ac048607be36714e2bce48c6" },
+	{ 1729, NULL,
+	  "de79362f40cf0c755b21cf30798fa828b21cba61222ebeccc5a1ee385183ff2a981926403529080f"
+	  "6c5a650bb299770222e7dbc0bdd559f479fac21d08044d306513067f2bf6accdb8b55942a5430e1c" },
+	{ 0xD59, "Mora labelled me Unknown Sample, which the overseer translated as Odo'ital......",
+	  "a7dd19a7fcdf3b7c0a8da1765553d903ff42687fe2f36c3930b82d7a68e426a90f49f1fc4b06263d"
+	  "cf95d70a1b436337586955ef61c976f97785da2d2c8144b6767f824d53dd518c2cfdce1e9bd74fe1" },
 };
 
 /* FIPS 180-2 SHA-256 test vectors (the last one needs two blocks, and
@@ -484,6 +531,25 @@ int main(int argc, char **argv)
 			failures += scan_test(a, header[2]);
 	}
 	sha256_use_shani(true);
+
+	for (v = 0; v < sizeof(odo_vectors) / sizeof(odo_vectors[0]); v++) {
+		unsigned char in[80], out[80], want[80];
+
+		if (odo_vectors[v].input)
+			memcpy(in, odo_vectors[v].input, 80);
+		else	/* LongTestString(): i, i >> 4, ... i >> 16, from i = 65520 */
+			for (h = 0; h < 80; h++)
+				in[h] = (unsigned char) ((65520 + h / 5) >> (4 * (h % 5)));
+		odo_encrypt_block(out, in, odo_vectors[v].key);
+		parse_hex(odo_vectors[v].expected, want, 80);
+		snprintf(what, sizeof(what), "odocrypt cipher, key %08x",
+			 (unsigned) odo_vectors[v].key);
+		if (memcmp(out, want, 80)) {
+			printf("FAIL %s\n", what);
+			failures++;
+		} else
+			printf("ok   %s\n", what);
+	}
 
 	/* both CryptoNight implementations: portable C, and AES-NI when the
 	 * CPU has it */

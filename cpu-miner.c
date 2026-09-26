@@ -113,6 +113,7 @@ enum algos {
     ALGO_X14,         /* X14 */
     ALGO_X15,         /* X15 Whirlpool */
     ALGO_QUBIT,       /* Qubit */
+    ALGO_ODO,         /* Odocrypt */
     ALGO_CRYPTONIGHT, /* CryptoNight */
 };
 
@@ -130,6 +131,7 @@ static const char *algo_names[] = {
     [ALGO_X14] =         "x14",
     [ALGO_X15] =         "x15",
     [ALGO_QUBIT] =       "qubit",
+    [ALGO_ODO] =         "odo",
     [ALGO_CRYPTONIGHT] = "cryptonight",
 };
 
@@ -241,6 +243,7 @@ Options:\n\
                           blake        BLAKE-256, 8 rounds: Blakecoin\n\
                           skein        SHA-256 of Skein-512: DigiByte\n\
                           qubit        Qubit: DigiByte\n\
+                          odo          Odocrypt: DigiByte\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -615,6 +618,7 @@ static bool work_decode(const json_t *val, struct work *work) {
         work->data[i] = le32dec(work->data + i);
     for (i = 0; i < ARRAY_SIZE(work->target); i++)
         work->target[i] = le32dec(work->target + i);
+    work->odo_key = odo_key(swab32(work->data[17]), ODO_INTERVAL_MAINNET);
 
     return true;
 
@@ -983,6 +987,12 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
     for (i = 0; i < 8; i++)
         work->data[9 + i] = be32dec((uint32_t *) merkle[0] + i);
     work->data[17] = swab32((uint32_t) curtime);
+    /* Odocrypt (DigiByte): the node's key, which is right on every network */
+    tmp = json_object_get(val, "odokey");
+    if (json_is_integer(tmp))
+        work->odo_key = (uint32_t) json_integer_value(tmp);
+    else
+        work->odo_key = odo_key((uint32_t) curtime, ODO_INTERVAL_MAINNET);
     work->data[18] = le32dec((uint32_t *) bits);
     memset(work->data + 19, 0x00, 52);
     work->data[20] = 0x80000000;
@@ -1685,6 +1695,7 @@ static bool get_work(struct thr_info *thr, struct work *work) {
     if (opt_benchmark) {
         memset(work->data, 0x55, 76);
         work->data[17] = swab32(time(NULL ));
+        work->odo_key = odo_key((uint32_t) time(NULL), ODO_INTERVAL_MAINNET);
         memset(work->data + 19, 0x00, 52);
         work->data[20] = 0x80000000;
         work->data[31] = 0x00000280;
@@ -1829,6 +1840,9 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
         work->data[9 + i] = be32dec((uint32_t *) merkle_root + i);
     work->data[17] = le32dec(sctx->job.ntime);
     work->data[18] = le32dec(sctx->job.nbits);
+    /* Odocrypt (DigiByte): the key comes from the block time; pools do not
+     * say which network, so it is the main network's */
+    work->odo_key = odo_key(swab32(work->data[17]), ODO_INTERVAL_MAINNET);
     work->data[20] = 0x80000000;
     work->data[31] = 0x00000280;
     diff = sctx->job.diff;
@@ -2034,6 +2048,7 @@ static void *miner_thread(void *userdata) {
             case ALGO_QUARK:
             case ALGO_X11:
             case ALGO_QUBIT:
+            case ALGO_ODO:
                 max64 = 0x3ffff;
                 break;
             case ALGO_X13:
@@ -2115,6 +2130,10 @@ static void *miner_thread(void *userdata) {
         case ALGO_QUBIT:
             rc = scanhash_qubit(thr_id, work.data, work.target, max_nonce,
                     &hashes_done);
+            break;
+        case ALGO_ODO:
+            rc = scanhash_odo(thr_id, work.data, work.target, work.odo_key,
+                    max_nonce, &hashes_done);
             break;
         case ALGO_CRYPTONIGHT:
             rc = scanhash_cryptonight(thr_id, work.data, work.data_size,
@@ -2523,6 +2542,8 @@ static void parse_arg(int key, char *arg) {
                 }
             }
         }
+        if (i == ARRAY_SIZE(algo_names) && !strcmp(arg, "odocrypt"))
+            opt_algo = i = ALGO_ODO;	/* its other name */
         if (i == ARRAY_SIZE(algo_names))
             show_usage_and_exit(1);
         break;

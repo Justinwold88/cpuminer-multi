@@ -207,6 +207,15 @@ extern int scanhash_x15(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 extern int scanhash_qubit(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t max_nonce, uint64_t *hashes_done);
 
+/* Odocrypt (DigiByte): the key is the block time rounded down to a whole
+ * number of "shape change" periods; testnet's period is 1 day */
+#define ODO_INTERVAL_MAINNET (10 * 24 * 60 * 60)
+extern uint32_t odo_key(uint32_t ntime, uint32_t interval);
+extern void odo_hash(void *output, const void *input, uint32_t key);
+extern void odo_encrypt_block(void *output, const void *input, uint32_t key);
+extern int scanhash_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+                            uint32_t key, uint32_t max_nonce, uint64_t *hashes_done);
+
 extern void cryptonight_hash(void* output, const void* input, size_t input_len);
 extern bool cryptonight_cpu_has_aesni(void);
 
@@ -225,6 +234,7 @@ extern void x13hash(void *output, const void *input);
 extern void x14hash(void *output, const void *input);
 extern void x15hash(void *output, const void *input);
 extern void qubithash(void *output, const void *input);
+extern void odohash(void *output, const void *input);
 
 /* CryptoNight job blobs: the nonce is at bytes 39..42 */
 #define RPC2_MIN_BLOB 43
@@ -304,6 +314,7 @@ struct work {
     size_t xnonce2_len;
     unsigned char *xnonce2;
     unsigned conn_gen;	/* stratum: the connection the job came from */
+    uint32_t odo_key;	/* Odocrypt's key for this header */
 
     /* getblocktemplate */
     int64_t height;

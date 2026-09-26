@@ -1,7 +1,8 @@
 Version multi 1.1.0 (unreleased)
 
 Algorithms
-- New: qubit (DigiByte), checked against real DigiByte blocks.
+- New: qubit and odo (Odocrypt) for DigiByte, checked against real
+  DigiByte blocks; odo is 4 times as fast as DigiByte Core's own code.
 - blake: shares are now valid for Blakecoin and the coins merge-mined
   with it (their transaction ids are single SHA-256).
 - skein: shares are checked against the real target (DigiByte); about
