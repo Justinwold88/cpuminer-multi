@@ -21,6 +21,7 @@
 #include <sys/time.h>
 #include <time.h>
 #ifdef _WIN32
+#include <winsock2.h>	/* before windows.h (curl.h includes it too) */
 #include <windows.h>
 #else
 #include <errno.h>
