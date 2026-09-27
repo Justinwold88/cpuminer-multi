@@ -305,24 +305,35 @@ static void sha256d_80_swap(uint32_t *hash, const uint32_t *data)
 }
 
 /* Plain SHA-256 of a short message (len < 512 MiB). */
-void sha256_hash(unsigned char *hash, const unsigned char *data, int len)
+/* SHA-256 of any number of bytes (Verthash's data file is 1.2 GB: the
+ * length in bits takes more than 32 bits) */
+void sha256_hash(unsigned char *hash, const unsigned char *data, size_t len)
 {
 	uint32_t S[16], T[16];
-	int i, r;
+	const uint64_t bits = (uint64_t) len * 8;
+	size_t done = 0, rest;
+	int i;
 
 	sha256_init(S);
-	for (r = len; r > -9; r -= 64) {
-		if (r < 64)
-			memset(T, 0, 64);
-		memcpy(T, data + len - r, r > 64 ? 64 : (r < 0 ? 0 : r));
-		if (r >= 0 && r < 64)
-			((unsigned char *)T)[r] = 0x80;
+	for (; len - done >= 64; done += 64) {
 		for (i = 0; i < 16; i++)
-			T[i] = be32dec(T + i);
-		if (r < 56)
-			T[15] = 8 * len;
+			T[i] = be32dec(data + done + 4 * i);
 		sha256_transform(S, T, 0);
 	}
+	/* the rest, 0x80, zeros, and the length in bits: one block or two */
+	rest = len - done;
+	memset(T, 0, 64);
+	memcpy(T, data + done, rest);
+	((unsigned char *)T)[rest] = 0x80;
+	for (i = 0; i < 16; i++)
+		T[i] = be32dec(T + i);
+	if (rest >= 56) {
+		sha256_transform(S, T, 0);
+		memset(T, 0, 64);
+	}
+	T[14] = (uint32_t) (bits >> 32);
+	T[15] = (uint32_t) bits;
+	sha256_transform(S, T, 0);
 	for (i = 0; i < 8; i++)
 		be32enc((uint32_t *)hash + i, S[i]);
 }

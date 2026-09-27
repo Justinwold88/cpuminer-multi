@@ -722,7 +722,7 @@ static bool work_decode(const json_t *val, struct work *work) {
 static void coinbase_txid(unsigned char *hash, const unsigned char *tx, size_t len)
 {
     if (opt_algo == ALGO_BLAKE || opt_algo == ALGO_KECCAK)
-        sha256_hash(hash, tx, (int) len);
+        sha256_hash(hash, tx, len);
     else
         sha256d(hash, tx, (int) len);
 }

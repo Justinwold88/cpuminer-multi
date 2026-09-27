@@ -376,6 +376,20 @@ static const struct {
 	  "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1" },
 };
 
+/* SHA-256 of n times "a": the lengths where the padding changes (Python's
+ * hashlib) */
+static const struct {
+	size_t n;
+	const char *expected;
+} sha256_a_vectors[] = {
+	{ 55, "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318" },
+	{ 63, "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34" },
+	{ 64, "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb" },
+	{ 65, "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0" },
+	{ 119, "31eba51c313a5c08226adf18d4a359cfdfd8d2e816b13f4af952f7ea6584dcfb" },
+	{ 1000, "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3" },
+};
+
 /* CryptoNote "slow hash" vectors (variable-length input) */
 static const struct {
 	const char *input;
@@ -851,6 +865,15 @@ int main(int argc, char **argv)
 			snprintf(what, sizeof(what), "sha256%s \"%.20s\"", name,
 				 sha256_vectors[v].input);
 			failures += check(what, hash, sha256_vectors[v].expected);
+		}
+		for (v = 0; v < sizeof(sha256_a_vectors) / sizeof(sha256_a_vectors[0]); v++) {
+			unsigned char a1000[1000];
+
+			memset(a1000, 'a', sha256_a_vectors[v].n);
+			sha256_hash(hash, a1000, sha256_a_vectors[v].n);
+			snprintf(what, sizeof(what), "sha256%s %zu times \"a\"", name,
+				 sha256_a_vectors[v].n);
+			failures += check(what, hash, sha256_a_vectors[v].expected);
 		}
 		for (a = 0; a < N_ALGOS; a++) {
 			if (impl && !algos[a].sha)
