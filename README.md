@@ -4,8 +4,8 @@ cpuminer-multi
 [![build](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml/badge.svg)](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml)
 
 A multi-threaded CPU miner for many proof-of-work algorithms, Monero's
-RandomX among them, for Linux, macOS and Windows on x86-64, 32-bit x86, ARM64,
-32-bit ARM and RISC-V.
+RandomX and Vertcoin's Verthash among them, for Linux, macOS and Windows on
+x86-64, 32-bit x86, ARM64, 32-bit ARM and RISC-V.
 
 This is a maintained fork of [Lucas Jones's cpuminer-multi](https://github.com/lucasjones/cpuminer-multi),
 itself a fork of [pooler's cpuminer](https://github.com/pooler/cpuminer)
@@ -29,6 +29,7 @@ Algorithms
 | `-a` | Coins | Status |
 |------|-------|--------|
 | `randomx` (`rx/0`) | Monero, and other coins on RandomX's rx/0 | works (new in this fork) |
+| `verthash` | Vertcoin | works (new in this fork) |
 | `sha256d` | Bitcoin, Bitcoin Cash, Peercoin, ... | works |
 | `scrypt` | Litecoin, Dogecoin | works |
 | `x11` | Dash | works |
@@ -61,7 +62,7 @@ today, so a CPU earns next to nothing on them. They are useful for testing
 and for testnets.
 
 Monero left CryptoNight for RandomX in 2019, and Vertcoin, Feathercoin and
-Myriad moved to other algorithms too. Planned: Verthash (Vertcoin).
+Myriad moved to other algorithms too; their current ones are all here.
 
 RandomX variants with other parameters (Wownero's `rx/wow`, ArQmA's
 `rx/arq`, ...) are not supported: the miner refuses their jobs rather than
@@ -237,6 +238,26 @@ The miner tells the pool it mines `rx/0`, refuses jobs for other
 algorithms, keeps the top byte of the nonce that NiceHash-style proxies
 (xmrig-proxy) set, and sends a keep-alive after a minute of silence from the
 pool (giving up on the connection after five).
+
+#### Verthash (Vertcoin)
+
+    minerd -a verthash -o stratum+tcp://pool.example.com:3333 -u ADDRESS -p x
+
+Verthash reads a 1.2 GB data file, `verthash.dat`, at random 4096 times a
+hash, so the whole file has to be in memory (1.3 GB with the program). The
+miner reads it from `--verthash-data=FILE`, or from `verthash.dat` in the
+current directory, or from Vertcoin Core's data directory (`~/.vertcoin`,
+`~/Library/Application Support/Vertcoin` or `%APPDATA%\Vertcoin`). If there
+is none, it builds one (in 10 to 30 seconds on a typical machine) and saves
+it as `verthash.dat` for next time. Either way it checks the data's SHA-256
+(`a55531e843cd56b010114aaf6325b0d529ecf88f8ad47639b6ededafd721aa48`), and
+refuses a file that does not match.
+
+Each hash waits on memory, not on the processor, so the miner works on four
+nonces at a time in each thread (three times the speed of one), and on Linux
+puts the data on huge pages: transparent huge pages, or pages reserved with
+`sudo sysctl -w vm.nr_hugepages=650`. GPUs mine most of Vertcoin's blocks.
+Solo mining works with Vertcoin Core's getblocktemplate, as for Bitcoin.
 
 #### CryptoNight
 

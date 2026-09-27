@@ -10,6 +10,14 @@ Algorithms
   it was tested on). Checked against RandomX's own test vectors, fast mode
   against light mode, and every share against an independent build of the
   library. Needs a C++11 compiler; without one, configure leaves it out.
+- New: verthash (Vertcoin). The 1.2 GB data file is read (from
+  --verthash-data, the current directory or Vertcoin Core's data
+  directory), or built in 10 to 30 seconds on a typical machine (six
+  times as fast as Vertcoin's own tool) and saved, and checked against its
+  SHA-256 either way. Four nonces at a time per thread and huge pages make
+  it about 4 times as fast as the reference code. Checked against the data
+  file's checksum and test vector that Vertcoin publishes, and every hash
+  against the reference code.
 - New: qubit and odo (Odocrypt) for DigiByte, checked against real
   DigiByte blocks; odo is 4 times as fast as DigiByte Core's own code.
 - New: neoscrypt (Feathercoin), checked against real Feathercoin blocks;

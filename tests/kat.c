@@ -15,6 +15,9 @@
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
  *  - randomx: tevador's test vectors (RandomX's tests.cpp); fast mode must
  *    agree with light mode
+ *  - verthash: the data file's SHA-256 and the test vector published by
+ *    Vertcoin (vertcoinhash-python), and its reference implementation for
+ *    the synthetic headers
  *  - all other sph-based algorithms: tpruvot/cpuminer-multi
  *
  * Usage:
@@ -152,6 +155,7 @@ static const struct {
 	hash80_fn fn;
 	scan_fn scan;
 	const char *expected[N_HEADERS];	/* one per header above */
+	bool verthash;		/* needs Verthash's data file */
 } algos[] = {
 	{ "sha256d", true, h_sha256d, scanhash_sha256d, {
 		"6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
@@ -253,6 +257,11 @@ static const struct {
 		"463e0b93e624a5897f0400823dc5db83f3b2afb8cc0ee550630587f8c7611e95",
 		"1118ec2a153f726b39fac9d8fcb3447a52935af6cfe78bca37930e880c72e0df",
 		"6f51e2a7ddc260523c47821920983523c4b936b04e3cbbe77fe779a5ed8a0d3d" } },
+	{ "verthash", false, verthash_hash, scanhash_verthash, {
+		"e9241c23491e9fa68e726c8fdcafb168812cc09fca719478335bbb128137af95",
+		"1fdf4f33ec5df2ef9e4a86de9c4be27e73d8414aa00f3a62c2067bc0ea482098",
+		"b2a9013a15d48a731529b030c1496dbb89674ce0771c5ad6716fed7c465b3ca0" },
+	  true },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
@@ -775,6 +784,50 @@ static int randomx_tests(void)
 	return failures;
 }
 
+/*
+ * Verthash's data file: read from KAT_VERTHASH_DATA if set, else built,
+ * which tests the builder (the data's SHA-256 must be the published one).
+ * KAT_VERTHASH=no skips Verthash, which takes 1.2 GB of memory.
+ */
+static bool verthash_ready;
+
+static int verthash_setup_tests(void)
+{
+	const char *env = getenv("KAT_VERTHASH"), *path = getenv("KAT_VERTHASH_DATA");
+	uint64_t mem = system_memory();
+	int r;
+
+	if (env && !strcmp(env, "no")) {
+		printf("skip verthash: KAT_VERTHASH=no\n");
+		return 0;
+	}
+	if (mem && mem < (3ULL << 29)) {
+		printf("skip verthash: not enough memory for the data file\n");
+		return 0;
+	}
+	if (path) {
+		r = verthash_load(path);
+		if (r != 1) {
+			printf("FAIL verthash: %s is not the data file\n", path);
+			return 1;
+		}
+		printf("ok   verthash data file %s\n", path);
+	} else {
+		r = verthash_create(NULL, processors());
+		if (r == 0) {
+			printf("skip verthash: not enough memory for the data file\n");
+			return 0;
+		}
+		if (r < 0) {
+			printf("FAIL verthash data file built: wrong SHA-256\n");
+			return 1;
+		}
+		printf("ok   verthash data file built, SHA-256 a55531e8...21aa48\n");
+	}
+	verthash_ready = true;
+	return 0;
+}
+
 /* index in algos[] of the algorithm called name; N_ALGOS if none */
 static size_t find_algo(const char *name)
 {
@@ -819,6 +872,10 @@ static int hash_cli(const char *algo, const char *hex)
 	}
 	if (!strcmp(algo, "cryptonight")) {
 		cryptonight_hash(out, in, len);
+	} else if (!strcmp(algo, "verthash") && !(getenv("KAT_VERTHASH_DATA")
+			? verthash_load(getenv("KAT_VERTHASH_DATA")) : verthash_create(NULL, processors())) == 1) {
+		fprintf(stderr, "no Verthash data file\n");
+		return 2;
 	} else {
 		size_t i = find_algo(algo);
 
@@ -850,6 +907,9 @@ int main(int argc, char **argv)
 		if (parse_hex(header_hex[h], header[h], 80) != 80)
 			return 2;
 
+	/* first, as it needs SHA-256 (its data file's checksum) */
+	failures += verthash_setup_tests();
+
 	/* everything built on SHA-256 twice: with the portable code, and
 	 * with the x86 SHA extensions when the CPU has them */
 	for (int impl = 0; impl < 2; impl++) {
@@ -876,7 +936,7 @@ int main(int argc, char **argv)
 			failures += check(what, hash, sha256_a_vectors[v].expected);
 		}
 		for (a = 0; a < N_ALGOS; a++) {
-			if (impl && !algos[a].sha)
+			if ((impl && !algos[a].sha) || (algos[a].verthash && !verthash_ready))
 				continue;
 			for (h = 0; h < N_HEADERS; h++) {
 				memset(hash, 0, sizeof(hash));
@@ -886,11 +946,13 @@ int main(int argc, char **argv)
 				failures += check(what, hash, algos[a].expected[h]);
 			}
 		}
-		for (v = 0; v < sizeof(block_vectors) / sizeof(block_vectors[0]); v++)
-			if (!impl || algos[find_algo(block_vectors[v].algo)].sha)
+		for (v = 0; v < sizeof(block_vectors) / sizeof(block_vectors[0]); v++) {
+			a = find_algo(block_vectors[v].algo);
+			if ((!impl || algos[a].sha) && (!algos[a].verthash || verthash_ready))
 				failures += block_test(v, name);
+		}
 		for (a = 0; a < N_ALGOS; a++)
-			if (!impl || algos[a].sha)
+			if ((!impl || algos[a].sha) && (!algos[a].verthash || verthash_ready))
 				failures += scan_test(a, header[2]);
 	}
 	sha256_use_shani(true);
@@ -1033,6 +1095,19 @@ int main(int argc, char **argv)
 			 !yespower_vectors[v].key ? "(no key)" :
 			 *yespower_vectors[v].key ? yespower_vectors[v].key : "(BSTY)");
 		failures += check(what, hash, yespower_vectors[v].expected);
+	}
+
+	/* Verthash: the test vector Vertcoin publishes with the data file */
+	if (verthash_ready) {
+		unsigned char vh_header[80];
+
+		parse_hex("000000203a297b4b7685170d7644b43e5a6056234cc2414edde454a87580e1967d"
+			  "14c1078c13ea916117b0608732f3f65c2e03b81322efc0a62bcee77d8a937126"
+			  "1970a58a5a715da80e031b02560ad8", vh_header, 80);
+		verthash_hash(hash, vh_header);
+		failures += check("verthash, vertcoinhash-python's test vector", hash,
+				  "e0f6c10b4a38f35a6cdcc26d32a7ed8c3bfc5d827a9bc72647afa324b70d0463");
+		verthash_free();
 	}
 
 	failures += randomx_tests();

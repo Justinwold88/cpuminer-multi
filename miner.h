@@ -224,6 +224,7 @@ extern bool cpu_has_sse2(void);
 extern bool cpu_has_avx2(void);
 extern bool cpu_has_avx512vl(void);
 extern uint64_t cpu_l3_cache_size(void);
+extern uint64_t system_memory(void);
 
 /* Argon2d variants */
 enum { ARGON2D_4096, ARGON2D_500, ARGON2D_250, ARGON2D_16000 };
@@ -246,6 +247,18 @@ extern void odo_hash(void *output, const void *input, uint32_t key);
 extern void odo_encrypt_block(void *output, const void *input, uint32_t key);
 extern int scanhash_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
                             uint32_t key, uint32_t max_nonce, uint64_t *hashes_done);
+
+/* Verthash (Vertcoin): its 1.2 GB data file (verthash.dat): read (1, or
+ * 0 if missing, -1 if wrong); built, and saved unless path is NULL (1, or
+ * 0 without the memory, -1 if wrong); or either as the miner needs it */
+extern int verthash_load(const char *path);
+extern int verthash_create(const char *path, int threads);
+extern bool verthash_setup(const char *path, int threads);
+extern void verthash_free(void);
+extern void verthash_generate(unsigned char *data, int threads);
+extern void verthash_hash(void *output, const void *input);
+extern int scanhash_verthash(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+                            uint32_t max_nonce, uint64_t *hashes_done);
 
 extern void cryptonight_hash(void* output, const void* input, size_t input_len);
 extern bool cryptonight_cpu_has_aesni(void);

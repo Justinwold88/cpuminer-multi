@@ -85,58 +85,6 @@ static inline randomx_flags rx_flags_without(randomx_flags f, int drop)
 	return (randomx_flags) (f & ~drop);
 }
 
-#ifdef __linux__
-/* the memory limit of the container (cgroup) the miner runs in, if any:
- * more than it would get the miner killed */
-static uint64_t rx_cgroup_limit(void)
-{
-	static const char *const files[] = {
-		"/sys/fs/cgroup/memory.max",			/* cgroup v2 */
-		"/sys/fs/cgroup/memory/memory.limit_in_bytes",	/* cgroup v1 */
-	};
-	unsigned i;
-
-	for (i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
-		FILE *f = fopen(files[i], "r");
-		unsigned long long limit;
-		int n;
-
-		if (!f)
-			continue;
-		n = fscanf(f, "%llu", &limit);
-		fclose(f);
-		/* "max", or v1's "unlimited" (close to 2^63) */
-		if (n == 1 && limit < (1ULL << 60))
-			return limit;
-	}
-	return 0;
-}
-#endif
-
-/* the memory the miner may use, in bytes: the machine's, or its
- * container's limit; 0 if unknown */
-static uint64_t rx_total_memory(void)
-{
-#ifdef _WIN32
-	MEMORYSTATUSEX ms;
-
-	ms.dwLength = sizeof(ms);
-	return GlobalMemoryStatusEx(&ms) ? ms.ullTotalPhys : 0;
-#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
-	long pages = sysconf(_SC_PHYS_PAGES), size = sysconf(_SC_PAGESIZE);
-	uint64_t mem = pages > 0 && size > 0 ? (uint64_t) pages * (uint64_t) size : 0;
-#ifdef __linux__
-	uint64_t limit = rx_cgroup_limit();
-
-	if (limit && (!mem || limit < mem))
-		mem = limit;
-#endif
-	return mem;
-#else
-	return 0;
-#endif
-}
-
 /* Linux: ask for transparent huge pages for memory that is read at random
  * (fewer TLB misses, a faster hash). It has to come before the memory is
  * first written. */
@@ -166,7 +114,7 @@ static void rx_advise_huge(void *p, uint64_t len)
 bool rx_setup(int mode, int threads, int init_threads)
 {
 	randomx_flags flags = randomx_get_flags();
-	uint64_t mem = rx_total_memory();
+	uint64_t mem = system_memory();
 	bool large_cache = false, large_dataset = false;
 	char memory[64];
 

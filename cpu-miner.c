@@ -127,6 +127,7 @@ enum algos {
     ALGO_YESPOWERR16, /* yespower 1.0, N=4096 r=16 */
     ALGO_CRYPTONIGHT, /* CryptoNight */
     ALGO_RANDOMX,     /* RandomX (rx/0) */
+    ALGO_VERTHASH,    /* Verthash */
 };
 
 static const char *algo_names[] = {
@@ -157,6 +158,7 @@ static const char *algo_names[] = {
     [ALGO_YESPOWERR16] = "yespowerr16",
     [ALGO_CRYPTONIGHT] = "cryptonight",
     [ALGO_RANDOMX] =     "randomx",
+    [ALGO_VERTHASH] =    "verthash",
 };
 
 bool opt_debug = false;
@@ -195,6 +197,7 @@ static const bool opt_time = true;
 static enum algos opt_algo = ALGO_SCRYPT;
 static int opt_scrypt_n = 1024;
 static int opt_randomx_mode = RX_MODE_AUTO;
+static char *opt_verthash_data;
 static double opt_diff_factor = 1.0;
 static int opt_n_threads;
 static int num_processors;
@@ -286,6 +289,7 @@ Options:\n\
                           yespower     yespower 1.0, N=2048 r=32 (--param-*)\n\
                           yespowerr16  yespower 1.0, N=4096 r=16: Yenten\n\
                           randomx      RandomX (rx/0): Monero\n\
+                          verthash     Verthash: Vertcoin\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -311,6 +315,9 @@ Options:\n\
       --randomx-mode=MODE  RandomX: fast (2.3 GiB of memory), light (256 MiB,\n\
                           several times slower), or auto (default: fast if\n\
                           the machine has the memory)\n\
+      --verthash-data=FILE  Verthash: the 1.2 GB data file (default:\n\
+                          verthash.dat here, or Vertcoin Core's; built and\n\
+                          saved if there is none)\n\
       --cert=FILE       certificate for mining server using SSL\n\
   -x, --proxy=[PROTOCOL://]HOST[:PORT]  connect through a proxy\n\
   -t, --threads=N       number of miner threads (default: number of processors)\n\
@@ -387,6 +394,7 @@ static struct option const options[] = {
         { "url", 1, NULL, 'o' },
         { "user", 1, NULL, 'u' },
         { "userpass", 1, NULL, 'O' },
+        { "verthash-data", 1, NULL, 1020 },
         { "version", 0, NULL, 'V' },
         { 0, 0, 0, 0 }
 };
@@ -1972,6 +1980,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
         diff_to_target(work->target, diff / (65536.0 * opt_diff_factor));
         break;
     case ALGO_FRESH:
+    case ALGO_VERTHASH:
         diff_to_target(work->target, diff / (256.0 * opt_diff_factor));
         break;
     case ALGO_KECCAK:
@@ -2190,6 +2199,9 @@ static void *miner_thread(void *userdata) {
             case ALGO_RANDOMX:
                 max64 = 0x40LL;
                 break;
+            case ALGO_VERTHASH:
+                max64 = 0x1fff;
+                break;
             case ALGO_NEOSCRYPT:
                 max64 = 0x3fff;
                 break;
@@ -2270,6 +2282,10 @@ static void *miner_thread(void *userdata) {
             break;
         case ALGO_FRESH:
             rc = scanhash_fresh(thr_id, work.data, work.target, max_nonce,
+                    &hashes_done);
+            break;
+        case ALGO_VERTHASH:
+            rc = scanhash_verthash(thr_id, work.data, work.target, max_nonce,
                     &hashes_done);
             break;
         case ALGO_X11:
@@ -2963,6 +2979,10 @@ static void parse_arg(int key, char *arg) {
         free(opt_param_key);
         opt_param_key = strdup(arg);
         break;
+    case 1020:
+        free(opt_verthash_data);
+        opt_verthash_data = strdup(arg);
+        break;
     case 1019:
         if (!strcmp(arg, "auto"))
             opt_randomx_mode = RX_MODE_AUTO;
@@ -3142,6 +3162,10 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "%s: --randomx-mode is for randomx\n", argv[0]);
 		show_usage_and_exit(1);
 	}
+	if (opt_verthash_data && opt_algo != ALGO_VERTHASH) {
+		fprintf(stderr, "%s: --verthash-data is for verthash\n", argv[0]);
+		show_usage_and_exit(1);
+	}
 	if (opt_algo >= ALGO_YESCRYPT && opt_algo <= ALGO_YESPOWERR16) {
 		char params[160];
 
@@ -3225,6 +3249,9 @@ int main(int argc, char *argv[]) {
 			return 1;
 		applog(LOG_INFO, "RandomX: %s", rx_describe());
 	}
+	/* Verthash: the data file */
+	if (opt_algo == ALGO_VERTHASH && !verthash_setup(opt_verthash_data, num_processors))
+		return 1;
 
 #ifdef HAVE_SYSLOG_H
 	if (use_syslog)

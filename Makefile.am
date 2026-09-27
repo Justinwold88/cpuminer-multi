@@ -45,6 +45,7 @@ libalgos_a_SOURCES = \
 		  argon2d.c \
 		  yescrypt.c \
 		  rx.c \
+		  verthash.c \
 		  yespower/yespower-opt.c \
 		  yespower/sha256.c \
 		  cpu-features.c \
