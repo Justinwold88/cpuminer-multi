@@ -389,7 +389,8 @@ void cryptonight_hash(void* output, const void* input, size_t len) {
  * the nonce at bytes 39..42; target[7]:target[6] is the 64-bit share target
  * compared with the top 64 bits of the hash. */
 int scanhash_cryptonight(int thr_id, uint32_t *pdata, size_t data_size,
-		const uint32_t *ptarget, uint32_t max_nonce, uint64_t *hashes_done) {
+		const uint32_t *ptarget, uint32_t max_nonce, uint64_t *hashes_done,
+		unsigned char *hash_out) {
 	unsigned char *blob = (unsigned char *) pdata;
 	uint32_t n = le32dec(blob + 39) - 1;
 	const uint32_t first_nonce = n + 1;
@@ -406,6 +407,7 @@ int scanhash_cryptonight(int thr_id, uint32_t *pdata, size_t data_size,
 		le32enc(blob + 39, ++n);
 		cn_hash_ctx(hash, blob, data_size, ctx);
 		if (unlikely((((uint64_t) hash[7] << 32) | hash[6]) < target)) {
+			memcpy(hash_out, hash, HASH_SIZE);
 			*hashes_done = n - first_nonce + 1;
 			return 1;
 		}

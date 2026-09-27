@@ -11,6 +11,16 @@
 #include "cpuminer-config.h"
 #include "miner.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 #if (defined(__x86_64__) || defined(__i386__)) && \
 	(defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5))
 #include <cpuid.h>
@@ -84,5 +94,112 @@ bool cpu_has_avx512vl(void)
 		&& (ebx7 & (1u << 31));		/* AVX512VL */
 #else
 	return false;
+#endif
+}
+
+#ifdef __linux__
+/* the first line of a small file, without its newline; false if none */
+static bool read_line(const char *path, char *buf, size_t len)
+{
+	FILE *f = fopen(path, "r");
+	bool ok;
+
+	if (!f)
+		return false;
+	ok = fgets(buf, (int) len, f) != NULL;
+	fclose(f);
+	if (ok)
+		buf[strcspn(buf, "\n")] = '\0';
+	return ok;
+}
+
+/* how many processors a list such as "0-3,8-11" names */
+static int cpu_list_count(const char *list)
+{
+	int n = 0;
+
+	while (*list) {
+		char *end;
+		long first = strtol(list, &end, 10), last = first;
+
+		if (end == list)
+			break;
+		if (*end == '-')
+			last = strtol(end + 1, &end, 10);
+		if (last >= first)
+			n += (int) (last - first + 1);
+		list = *end == ',' ? end + 1 : end;
+		if (*end != ',')
+			break;
+	}
+	return n;
+}
+#endif
+
+/*
+ * All the processor's level 3 caches together, in bytes, or 0 if unknown.
+ * Algorithms with a 2 MiB scratchpad per thread (CryptoNight, RandomX) are
+ * slowed down, not sped up, by threads whose scratchpads do not fit in it.
+ */
+uint64_t cpu_l3_cache_size(void)
+{
+#if defined(__linux__)
+	uint64_t total = 0;
+	char path[96], buf[256];
+	int cpu, idx;
+
+	/* each processor's share of each cache it uses */
+	for (cpu = 0; cpu < 65536; cpu++) {
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index0/level", cpu);
+		if (!read_line(path, buf, sizeof(buf)))
+			break;
+		for (idx = 0; idx < 16; idx++) {
+			unsigned long long size;
+			char *unit;
+			int sharing;
+
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index%d/level", cpu, idx);
+			if (!read_line(path, buf, sizeof(buf)))
+				break;
+			if (atoi(buf) != 3)
+				continue;
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index%d/size", cpu, idx);
+			if (!read_line(path, buf, sizeof(buf)))
+				continue;
+			size = strtoull(buf, &unit, 10);
+			if (*unit == 'K')
+				size <<= 10;
+			else if (*unit == 'M')
+				size <<= 20;
+			snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index%d/shared_cpu_list", cpu, idx);
+			sharing = read_line(path, buf, sizeof(buf)) ? cpu_list_count(buf) : 1;
+			total += size / (sharing > 0 ? sharing : 1);
+		}
+	}
+	return total;
+#elif defined(_WIN32)
+	SYSTEM_LOGICAL_PROCESSOR_INFORMATION *info;
+	DWORD len = 0, i;
+	uint64_t total = 0;
+
+	GetLogicalProcessorInformation(NULL, &len);
+	info = len ? malloc(len) : NULL;
+	if (!info)
+		return 0;
+	if (GetLogicalProcessorInformation(info, &len))
+		for (i = 0; i < len / sizeof(*info); i++)
+			if (info[i].Relationship == RelationCache && info[i].Cache.Level == 3)
+				total += info[i].Cache.Size;
+	free(info);
+	return total;
+#elif defined(__APPLE__)
+	uint64_t size = 0;
+	size_t len = sizeof(size);
+
+	if (sysctlbyname("hw.l3cachesize", &size, &len, NULL, 0) || len != sizeof(size))
+		return 0;
+	return size;
+#else
+	return 0;
 #endif
 }

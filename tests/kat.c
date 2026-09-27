@@ -13,6 +13,8 @@
  *  - odo: DigiByte Core's cipher test vectors, and its implementation for
  *    the synthetic headers
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
+ *  - randomx: tevador's test vectors (RandomX's tests.cpp); fast mode must
+ *    agree with light mode
  *  - all other sph-based algorithms: tpruvot/cpuminer-multi
  *
  * Usage:
@@ -32,6 +34,11 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -509,7 +516,7 @@ static int scan_test(size_t a, const unsigned char *header)
 /* CryptoNight scan: 64-bit target, nonce at bytes 39..42, any blob length */
 static int cn_scan_test(size_t len)
 {
-	unsigned char blob[RPC2_MAX_BLOB], hash[32];
+	unsigned char blob[RPC2_MAX_BLOB], hash[32], found[32];
 	uint32_t pdata[32], target[8], nonce = 0x12345678;
 	uint64_t top, done;
 	char what[64];
@@ -526,9 +533,9 @@ static int cn_scan_test(size_t len)
 	memset(target, 0xff, sizeof(target));
 	target[6] = (uint32_t)(top + 1);
 	target[7] = (uint32_t)((top + 1) >> 32);
-	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done);
+	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done, found);
 	snprintf(what, sizeof(what), "cryptonight scan (%zu-byte blob) finds share", len);
-	if (!rc || le32dec((unsigned char *)pdata + 39) != nonce) {
+	if (!rc || le32dec((unsigned char *)pdata + 39) != nonce || memcmp(found, hash, 32)) {
 		printf("FAIL %s\n", what);
 		failures++;
 	} else
@@ -537,13 +544,220 @@ static int cn_scan_test(size_t len)
 	memcpy(pdata, blob, len);
 	target[6] = (uint32_t)top;
 	target[7] = (uint32_t)(top >> 32);
-	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done);
+	rc = scanhash_cryptonight(0, pdata, len, target, nonce, &done, found);
 	snprintf(what, sizeof(what), "cryptonight scan (%zu-byte blob) rejects target = hash", len);
 	if (rc) {
 		printf("FAIL %s\n", what);
 		failures++;
 	} else
 		printf("ok   %s\n", what);
+	return failures;
+}
+
+/* RandomX (rx/0): tevador's test vectors (keys and inputs in text or hex) */
+static const struct {
+	const char *key, *input, *expected;
+	bool hex_key, hex_input;
+} rx_vectors[] = {
+	{ "test key 000", "This is a test",
+	  "639183aae1bf4c9a35884cb46b09cad9175f04efd7684e7262a0ac1c2f0b4e3f", false, false },
+	{ "test key 000", "Lorem ipsum dolor sit amet",
+	  "300a0adb47603dedb42228ccb2b211104f4da45af709cd7547cd049e9489c969", false, false },
+	{ "test key 000", "sed do eiusmod tempor incididunt ut labore et dolore magna aliqua",
+	  "c36d4ed4191e617309867ed66a443be4075014e2b061bcdaf9ce7b721d2b77a8", false, false },
+	{ "test key 001", "sed do eiusmod tempor incididunt ut labore et dolore magna aliqua",
+	  "e9ff4503201c0c2cca26d285c93ae883f9b1d30c9eb240b820756f2d5a7905fc", false, false },
+	/* a Monero block hashing blob */
+	{ "test key 001",
+	  "0b0b98bea7e805e0010a2126d287a2a0cc833d312cb786385a7c2f9de69d25537f584a9bc9977b"
+	  "00000000666fd8753bf61a8631f12984e3fd44f4014eca629276817b56f32e9b68bd82f416",
+	  "c56414121acda1713c2f2a819d8ae38aed7c80c35c2a769298d34f03833cd5f1", false, true },
+	/* an ISUB_R edge case */
+	{ "7797373ea4633194640bf8d8c3b66724d6aa7bd2dc20e009df2f8f1710abe8",
+	  "1010e1eaf8cf067b37b5f0ee031ab23ed1755e090a3af4415830145853e2be3e1f6821fed84dae58"
+	  "d00e00da5214d6c1f2d0622e0abd51f9373d04e0b0f8e6d6514d90689721c4aac5a9bb0d",
+	  "78af2a1864c42abce36d2e8983e13df99b2af0ce1362999af09fab004d4435a8", true, true },
+};
+
+/*
+ * RandomX scan loop: 64-bit targets and the nonce at bytes 39..42, like
+ * CryptoNight. It finishes one nonce's hash while starting the next, so
+ * each hash it reports is checked against a single hash. In fast mode the
+ * hashes must also be light mode's (which the test vectors checked).
+ */
+#define RX_WINDOW 6
+static unsigned char rx_blob[76], rx_seed[32], rx_light[RX_WINDOW][32];
+
+static uint64_t top64(const unsigned char *h)
+{
+	return (uint64_t)le32(h + 28) << 32 | le32(h + 24);
+}
+
+/* scanhash_randomx(), again if it only caught up with a new dataset */
+static int rx_scan(uint32_t *pdata, uint32_t first, const uint32_t *target,
+		   uint32_t max_nonce, uint64_t *done, unsigned char *found)
+{
+	int rc, tries = 0;
+
+	do {
+		memset(pdata, 0, 32 * sizeof(*pdata));
+		memcpy(pdata, rx_blob, sizeof(rx_blob));
+		le32enc((unsigned char *)pdata + 39, first);
+		rc = scanhash_randomx(0, pdata, sizeof(rx_blob), rx_seed, target,
+				      max_nonce, done, found);
+	} while (!rc && !*done && ++tries < 3);
+	return rc;
+}
+
+static int rx_scan_test(const char *mode, bool fast)
+{
+	unsigned char blob[sizeof(rx_blob)], hash[32], found[32];
+	uint32_t pdata[32], target[8], best = 0, n;
+	const uint32_t base = 0x7fffff00;
+	uint64_t done, low = UINT64_MAX;
+	char what[96];
+	int rc, i, failures = 0;
+
+	for (i = 0; i < RX_WINDOW; i++) {
+		memcpy(blob, rx_blob, sizeof(blob));
+		le32enc(blob + 39, base + i);
+		if (!rx_hash(0, hash, rx_seed, sizeof(rx_seed), blob, sizeof(blob))) {
+			printf("FAIL randomx (%s): no virtual machine\n", mode);
+			return 1;
+		}
+		if (!fast)
+			memcpy(rx_light[i], hash, 32);
+		else if (memcmp(hash, rx_light[i], 32)) {
+			printf("FAIL randomx (%s): nonce %08x hashes differently than in light mode\n",
+			       mode, base + i);
+			failures++;
+		}
+		if (top64(rx_light[i]) < low) {
+			low = top64(rx_light[i]);
+			best = base + i;
+		}
+	}
+	if (fast && !failures)
+		printf("ok   randomx (%s) hashes as light mode does\n", mode);
+
+	/* any hash is a share: each call reports its first nonce */
+	memset(target, 0xff, sizeof(target));
+	for (i = 0; i < 3; i++) {
+		rc = rx_scan(pdata, base + i, target, base + RX_WINDOW - 1, &done, found);
+		n = le32dec((unsigned char *)pdata + 39);
+		snprintf(what, sizeof(what), "randomx (%s) scan reports nonce %08x's hash", mode, base + i);
+		if (!rc || n != base + i || memcmp(found, rx_light[i], 32)) {
+			printf("FAIL %s (rc=%d nonce=%08x)\n", what, rc, n);
+			failures++;
+		} else
+			printf("ok   %s\n", what);
+	}
+
+	/* the lowest hash in the window, at a target just above it */
+	target[6] = (uint32_t)(low + 1);
+	target[7] = (uint32_t)((low + 1) >> 32);
+	rc = rx_scan(pdata, base, target, base + RX_WINDOW - 1, &done, found);
+	n = le32dec((unsigned char *)pdata + 39);
+	snprintf(what, sizeof(what), "randomx (%s) scan finds share at target", mode);
+	if (!rc || n != best || memcmp(found, rx_light[best - base], 32)) {
+		printf("FAIL %s (rc=%d nonce=%08x want %08x)\n", what, rc, n, best);
+		failures++;
+	} else
+		printf("ok   %s\n", what);
+
+	/* and none at a target equal to it (a share is below the target) */
+	target[6] = (uint32_t)low;
+	target[7] = (uint32_t)(low >> 32);
+	rc = rx_scan(pdata, base, target, base + RX_WINDOW - 1, &done, found);
+	n = le32dec((unsigned char *)pdata + 39);
+	snprintf(what, sizeof(what), "randomx (%s) scan rejects target = hash", mode);
+	if (rc || n != base + RX_WINDOW - 1 || done != RX_WINDOW) {
+		printf("FAIL %s (rc=%d nonce=%08x, %llu hashes)\n", what, rc, n,
+		       (unsigned long long)done);
+		failures++;
+	} else
+		printf("ok   %s\n", what);
+	return failures;
+}
+
+static int processors(void)
+{
+#ifdef _WIN32
+	SYSTEM_INFO info;
+
+	GetSystemInfo(&info);
+	return (int)info.dwNumberOfProcessors;
+#elif defined(_SC_NPROCESSORS_ONLN)
+	long n = sysconf(_SC_NPROCESSORS_ONLN);
+
+	return n > 0 ? (int)n : 1;
+#else
+	return 1;
+#endif
+}
+
+/* RandomX in light mode, then fast mode if the machine has the memory
+ * (as the miner decides); KAT_RANDOMX_FAST=no skips fast mode, which takes
+ * 2.3 GiB and a while to set up */
+static int randomx_tests(void)
+{
+	const char *env = getenv("KAT_RANDOMX_FAST");
+	unsigned char key[64], in[128], hash[32];
+	char what[128];
+	int failures = 0, keylen, len;
+	size_t v;
+
+#ifndef USE_RANDOMX
+	printf("skip randomx: not built (no C++11 compiler)\n");
+	return 0;
+#endif
+	if (!rx_setup(RX_MODE_LIGHT, 1, processors())) {
+		printf("FAIL randomx: no memory for light mode\n");
+		return 1;
+	}
+	printf("     randomx: %s\n", rx_describe());
+	for (v = 0; v < sizeof(rx_vectors) / sizeof(rx_vectors[0]); v++) {
+		if (rx_vectors[v].hex_key)
+			keylen = parse_hex(rx_vectors[v].key, key, sizeof(key));
+		else {
+			keylen = (int)strlen(rx_vectors[v].key);
+			memcpy(key, rx_vectors[v].key, keylen);
+		}
+		if (rx_vectors[v].hex_input)
+			len = parse_hex(rx_vectors[v].input, in, sizeof(in));
+		else {
+			len = (int)strlen(rx_vectors[v].input);
+			memcpy(in, rx_vectors[v].input, len);
+		}
+		snprintf(what, sizeof(what), "randomx (light) key \"%.12s\", \"%.20s\"",
+			 rx_vectors[v].key, rx_vectors[v].input);
+		if (keylen < 0 || len < 0 || !rx_hash(0, hash, key, keylen, in, len)) {
+			printf("FAIL %s: no result\n", what);
+			failures++;
+		} else
+			failures += check(what, hash, rx_vectors[v].expected);
+	}
+
+	/* a Monero-style job blob (the fifth vector's input) with a 32-byte key */
+	parse_hex(rx_vectors[4].input, rx_blob, sizeof(rx_blob));
+	for (v = 0; v < sizeof(rx_seed); v++)
+		rx_seed[v] = (unsigned char)(v * 11 + 5);
+	failures += rx_scan_test("light", false);
+	rx_cleanup();
+
+	if (sizeof(void *) < 8)
+		printf("skip randomx (fast): fast mode is for 64-bit builds\n");
+	else if (env && !strcmp(env, "no"))
+		printf("skip randomx (fast): KAT_RANDOMX_FAST=no\n");
+	else if (!rx_setup(RX_MODE_AUTO, 1, processors()))
+		printf("skip randomx (fast): not enough memory\n");
+	else if (!rx_is_fast())
+		printf("skip randomx (fast): not enough memory for the dataset\n");
+	else {
+		printf("     randomx: %s\n", rx_describe());
+		failures += rx_scan_test("fast", true);
+	}
+	rx_cleanup();
 	return failures;
 }
 
@@ -797,6 +1011,8 @@ int main(int argc, char **argv)
 			 *yespower_vectors[v].key ? yespower_vectors[v].key : "(BSTY)");
 		failures += check(what, hash, yespower_vectors[v].expected);
 	}
+
+	failures += randomx_tests();
 
 	printf("%d failure(s)\n", failures);
 	return failures ? 1 : 0;

@@ -223,6 +223,7 @@ extern int scanhash_yespower(int thr_id, uint32_t *pdata, const uint32_t *ptarge
 extern bool cpu_has_sse2(void);
 extern bool cpu_has_avx2(void);
 extern bool cpu_has_avx512vl(void);
+extern uint64_t cpu_l3_cache_size(void);
 
 /* Argon2d variants */
 enum { ARGON2D_4096, ARGON2D_500, ARGON2D_250, ARGON2D_16000 };
@@ -267,13 +268,29 @@ extern void qubithash(void *output, const void *input);
 extern void odohash(void *output, const void *input);
 extern void neoscrypt_hash(void *output, const void *input);
 
-/* CryptoNight job blobs: the nonce is at bytes 39..42 */
+/* CryptoNight and RandomX (JSON-RPC 2.0) job blobs: the nonce is at bytes
+ * 39..42. The scan loops return the hash they found, which pools want. */
 #define RPC2_MIN_BLOB 43
 #define RPC2_MAX_BLOB 128
 
 extern int scanhash_cryptonight(int thr_id, uint32_t *pdata, size_t data_size,
                             const uint32_t *ptarget,
-                            uint32_t max_nonce, uint64_t *hashes_done);
+                            uint32_t max_nonce, uint64_t *hashes_done,
+                            unsigned char *hash);
+
+/* RandomX (rx.c): the miner threads share a cache and, in fast mode, a
+ * dataset, rebuilt when the key (the job's seed hash) changes */
+enum { RX_MODE_AUTO, RX_MODE_FAST, RX_MODE_LIGHT };
+extern bool rx_setup(int mode, int threads, int init_threads);
+extern const char *rx_describe(void);
+extern bool rx_is_fast(void);
+extern void rx_cleanup(void);
+extern bool rx_hash(int thr_id, void *output, const void *key, size_t keylen,
+                            const void *input, size_t len);
+extern int scanhash_randomx(int thr_id, uint32_t *pdata, size_t data_size,
+                            const unsigned char *seed, const uint32_t *ptarget,
+                            uint32_t max_nonce, uint64_t *hashes_done,
+                            unsigned char *hash);
 
 struct thr_info {
 	int		id;
@@ -338,8 +355,10 @@ struct txs_ref;
 struct work {
     uint32_t data[32];
     uint32_t target[8];
-    size_t data_size;	/* CryptoNight: job blob length in bytes */
+    size_t data_size;	/* JSON-RPC 2.0: job blob length in bytes */
     double targetdiff;	/* stratum: pool difficulty the target came from */
+    unsigned char seed_hash[32];	/* RandomX: the job's key */
+    unsigned char result[32];	/* JSON-RPC 2.0: the hash of the share found */
 
     char *job_id;
     size_t xnonce2_len;
@@ -404,6 +423,7 @@ bool stratum_handle_method(struct stratum_ctx *sctx, const char *s);
 
 extern bool rpc2_job_decode(const json_t *job, struct work *work);
 extern bool rpc2_login_decode(const json_t *val);
+extern char *rpc2_login_req(const char *user, const char *pass);
 
 struct thread_q;
 

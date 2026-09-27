@@ -126,6 +126,7 @@ enum algos {
     ALGO_YESPOWER,    /* yespower 1.0, N=2048 r=32 */
     ALGO_YESPOWERR16, /* yespower 1.0, N=4096 r=16 */
     ALGO_CRYPTONIGHT, /* CryptoNight */
+    ALGO_RANDOMX,     /* RandomX (rx/0) */
 };
 
 static const char *algo_names[] = {
@@ -155,6 +156,7 @@ static const char *algo_names[] = {
     [ALGO_YESPOWER] =    "yespower",
     [ALGO_YESPOWERR16] = "yespowerr16",
     [ALGO_CRYPTONIGHT] = "cryptonight",
+    [ALGO_RANDOMX] =     "randomx",
 };
 
 bool opt_debug = false;
@@ -192,6 +194,7 @@ static json_t *opt_config;
 static const bool opt_time = true;
 static enum algos opt_algo = ALGO_SCRYPT;
 static int opt_scrypt_n = 1024;
+static int opt_randomx_mode = RX_MODE_AUTO;
 static double opt_diff_factor = 1.0;
 static int opt_n_threads;
 static int num_processors;
@@ -207,12 +210,15 @@ int longpoll_thr_id = -1;
 int stratum_thr_id = -1;
 struct work_restart *work_restart = NULL;
 static struct stratum_ctx stratum;
-/* CryptoNight (JSON-RPC 2.0) session state, protected by rpc2_job_lock */
+/* CryptoNight and RandomX (JSON-RPC 2.0) session state, protected by
+ * rpc2_job_lock */
 static char rpc2_id[64] = "";		/* under rpc2_id_lock */
 static unsigned char rpc2_blob[RPC2_MAX_BLOB];
 static size_t rpc2_bloblen = 0;
 static uint32_t rpc2_target[2] = { 0, 0 };	/* low, high 32 bits */
+static unsigned char rpc2_seed[32];	/* RandomX: the key */
 static char *rpc2_job_id = NULL;
+#define RPC2_KEEPALIVE_ID 3		/* the id of our "keepalived" requests */
 bool aes_ni_supported = false;
 
 /* Statically initialized: applog() can run before main() gets far, and a
@@ -279,6 +285,7 @@ Options:\n\
                           yescryptr32  yescrypt, N=4096 r=32: WAVI\n\
                           yespower     yespower 1.0, N=2048 r=32 (--param-*)\n\
                           yespowerr16  yespower 1.0, N=4096 r=16: Yenten\n\
+                          randomx      RandomX (rx/0): Monero\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -301,6 +308,9 @@ Options:\n\
       --param-n=N       yescrypt/yespower: N (a power of 2 from 1024 on)\n\
       --param-r=R       yescrypt/yespower: r (8 to 32)\n\
       --param-key=TEXT  yescrypt/yespower: personalization string\n\
+      --randomx-mode=MODE  RandomX: fast (2.3 GiB of memory), light (256 MiB,\n\
+                          several times slower), or auto (default: fast if\n\
+                          the machine has the memory)\n\
       --cert=FILE       certificate for mining server using SSL\n\
   -x, --proxy=[PROTOCOL://]HOST[:PORT]  connect through a proxy\n\
   -t, --threads=N       number of miner threads (default: number of processors)\n\
@@ -365,6 +375,7 @@ static struct option const options[] = {
         { "protocol-dump", 0, NULL, 'P' },
         { "proxy", 1, NULL, 'x' },
         { "quiet", 0, NULL, 'q' },
+        { "randomx-mode", 1, NULL, 1019 },
         { "retries", 1, NULL, 'r' },
         { "retry-pause", 1, NULL, 'R' },
         { "scantime", 1, NULL, 's' },
@@ -572,12 +583,33 @@ static double rpc2_target_diff(const uint32_t target[2])
     return t ? 18446744073709551615.0 / (double) t : 0.;
 }
 
-/* Decode a CryptoNight job ("job" notification, or the job in a login or
+/* the names pools give the algorithm being mined (xmrig's, and others) */
+static bool rpc2_algo_ok(const char *algo)
+{
+    static const char *const cn[] = { "cn/0", "cryptonight", "cryptonight/0", "cn", NULL };
+    static const char *const rx[] = { "rx/0", "randomx", "rx", NULL };
+    const char *const *name = opt_algo == ALGO_RANDOMX ? rx : cn;
+
+    if (!algo)
+        return true;	/* the pool did not say */
+    for (; *name; name++)
+        if (!strcasecmp(algo, *name))
+            return true;
+    return false;
+}
+
+/* the name we give pools for the algorithm */
+static const char *rpc2_algo_name(void)
+{
+    return opt_algo == ALGO_RANDOMX ? "rx/0" : "cn/0";
+}
+
+/* Decode a JSON-RPC 2.0 job ("job" notification, or the job in a login or
  * getjob reply). An empty blob keeps the previous job. With a non-NULL
  * work, the current job is copied into it. */
 bool rpc2_job_decode(const json_t *job, struct work *work) {
-    const char *job_id, *hexblob, *hextarget;
-    unsigned char blob[RPC2_MAX_BLOB];
+    const char *job_id, *hexblob, *hextarget, *algo, *hexseed;
+    unsigned char blob[RPC2_MAX_BLOB], seed[32];
     uint32_t target[2];
     size_t bloblen;
     bool ok = false;
@@ -606,11 +638,28 @@ bool rpc2_job_decode(const json_t *job, struct work *work) {
         applog(LOG_ERR, "JSON-RPC 2.0 job: missing or invalid target");
         return false;
     }
+    /* a pool that mines several algorithms says which (xmrig's names) */
+    algo = json_string_value(json_object_get(job, "algo"));
+    if (bloblen && !rpc2_algo_ok(algo)) {
+        applog(LOG_ERR, "The pool sent a job for %s; this miner mines %s",
+                algo, rpc2_algo_name());
+        return false;
+    }
+    /* RandomX: the key, which changes every 2048 blocks on Monero */
+    if (bloblen && opt_algo == ALGO_RANDOMX) {
+        hexseed = json_string_value(json_object_get(job, "seed_hash"));
+        if (!hexseed || strlen(hexseed) != 64 || !hex2bin(seed, hexseed, 32)) {
+            applog(LOG_ERR, "JSON-RPC 2.0 job: missing or invalid seed_hash (not a RandomX pool?)");
+            return false;
+        }
+    }
 
     pthread_mutex_lock(&rpc2_job_lock);
     if (bloblen) {
         memcpy(rpc2_blob, blob, bloblen);
         rpc2_bloblen = bloblen;
+        if (opt_algo == ALGO_RANDOMX)
+            memcpy(rpc2_seed, seed, 32);
         if (target[0] != rpc2_target[0] || target[1] != rpc2_target[1]) {
             applog(LOG_INFO, "Pool set diff to %g", rpc2_target_diff(target));
             rpc2_target[0] = target[0];
@@ -630,6 +679,7 @@ bool rpc2_job_decode(const json_t *job, struct work *work) {
         memset(work->target, 0xff, sizeof(work->target));
         work->target[6] = rpc2_target[0];
         work->target[7] = rpc2_target[1];
+        memcpy(work->seed_hash, rpc2_seed, 32);
         free(work->job_id);
         work->job_id = strdup(rpc2_job_id);
     }
@@ -1218,6 +1268,7 @@ static void share_result(int result, struct work *work, const char *reason) {
 
     switch (opt_algo) {
     case ALGO_CRYPTONIGHT:
+    case ALGO_RANDOMX:
         applog(LOG_INFO, "accepted: %lu/%lu (%.2f%%), %.2f H/s at diff %g %s",
                 accepted_count, accepted_count + rejected_count,
                 100. * accepted_count / (accepted_count + rejected_count), hashrate,
@@ -1237,17 +1288,16 @@ static void share_result(int result, struct work *work, const char *reason) {
         applog(LOG_DEBUG, "DEBUG: reject reason: %s", reason);
 }
 
-/* JSON-RPC 2.0 "submit" request for a CryptoNight share (caller frees) */
+/* JSON-RPC 2.0 "submit" request for a share, with the hash the miner thread
+ * found (caller frees) */
 static char *rpc2_submit_req(const struct work *work)
 {
-    unsigned char hash[32];
     char *noncestr, *hashhex, *req = NULL, id[sizeof(rpc2_id)];
     json_t *obj;
 
     rpc2_get_id(id);
-    cryptonight_hash(hash, work->data, work->data_size);
     noncestr = bin2hex((const unsigned char *) work->data + 39, 4);
-    hashhex = bin2hex(hash, 32);
+    hashhex = bin2hex(work->result, 32);
     obj = json_pack("{s:s, s:{s:s, s:s, s:s, s:s}, s:i}",
             "method", "submit",
             "params",
@@ -1532,8 +1582,19 @@ start:
     return rc;
 }
 
+/* JSON-RPC 2.0 "login" request (caller frees): naming the algorithm lets a
+ * pool or proxy that serves several send the right jobs */
+char *rpc2_login_req(const char *user, const char *pass)
+{
+    return json_request(json_pack("{s:s, s:{s:s, s:s, s:s, s:[s]}, s:i}",
+            "method", "login",
+            "params", "login", user, "pass", pass, "agent", USER_AGENT,
+                      "algo", rpc2_algo_name(),
+            "id", 1));
+}
+
 static bool rpc2_login(CURL *curl) {
-    json_t *req, *val, *result;
+    json_t *val, *result;
     struct timeval tv_start, tv_end, diff;
     char *s;
     bool rc = false;
@@ -1541,12 +1602,7 @@ static bool rpc2_login(CURL *curl) {
     if (!jsonrpc_2)
         return false;
 
-    req = json_pack("{s:s, s:{s:s, s:s, s:s}, s:i}",
-            "method", "login",
-            "params", "login", rpc_user, "pass", rpc_pass, "agent", USER_AGENT,
-            "id", 1);
-    s = req ? json_dumps(req, 0) : NULL;
-    json_decref(req);
+    s = rpc2_login_req(rpc_user, rpc_pass);
     if (!s)
         return false;
 
@@ -1943,7 +1999,34 @@ static inline void work_set_nonce(struct work *w, uint32_t nonce)
         w->data[19] = nonce;
 }
 
-/* true if a and b are different jobs (their nonces are ignored) */
+/*
+ * A thread's share of a job's nonces, first to end: of a block header's,
+ * all 32 bits; of a JSON-RPC 2.0 blob's, the low 24 bits, with the top byte
+ * the job's own. NiceHash-style proxies (xmrig-proxy) give each miner its
+ * own top byte; other pools leave it 0.
+ */
+static inline uint32_t nonce_base(const struct work *w)
+{
+    return jsonrpc_2 ? (uint32_t) ((const unsigned char *) w->data)[42] << 24 : 0;
+}
+
+static inline uint32_t nonce_span(void)
+{
+    return jsonrpc_2 ? 0x00ffffffU : 0xffffffffU;
+}
+
+static inline uint32_t nonce_first(const struct work *w, int thr_id)
+{
+    return nonce_base(w) | (nonce_span() / opt_n_threads * thr_id);
+}
+
+static inline uint32_t nonce_end(const struct work *w, int thr_id)
+{
+    return nonce_base(w) | (nonce_span() / opt_n_threads * (thr_id + 1) - 0x20);
+}
+
+/* true if a and b are different jobs (their nonces are ignored, but for
+ * a JSON-RPC 2.0 job's top nonce byte, which is the pool's) */
 static bool work_differs(const struct work *a, const struct work *b)
 {
     const unsigned char *x = (const unsigned char *) a->data;
@@ -1951,9 +2034,10 @@ static bool work_differs(const struct work *a, const struct work *b)
 
     if (!jsonrpc_2)
         return memcmp(x, y, 76) != 0;
-    if (a->data_size != b->data_size || a->data_size < RPC2_MIN_BLOB)
+    if (a->data_size != b->data_size || a->data_size < RPC2_MIN_BLOB
+            || memcmp(a->seed_hash, b->seed_hash, sizeof(a->seed_hash)))
         return true;
-    return memcmp(x, y, 39) || memcmp(x + 43, y + 43, a->data_size - 43);
+    return memcmp(x, y, 39) || memcmp(x + 42, y + 42, a->data_size - 42);
 }
 
 static void work_sync_job(struct work *w, const struct work *g)
@@ -1974,7 +2058,6 @@ static void *miner_thread(void *userdata) {
     int thr_id = mythr->id;
     struct work work = { { 0 } };
     uint32_t max_nonce;
-    uint32_t end_nonce = 0xffffffffU / opt_n_threads * (thr_id + 1) - 0x20;
     unsigned char *scratchbuf = NULL;
     char s[16];
     int i;
@@ -2022,7 +2105,8 @@ static void *miner_thread(void *userdata) {
                 sleep(1);
                 pthread_mutex_lock(&g_work_lock);
             }
-            if (work_nonce(&work) >= end_nonce && !work_differs(&work, &g_work)) {
+            if (work_nonce(&work) >= nonce_end(&work, thr_id)
+                    && !work_differs(&work, &g_work)) {
                 if (!stratum_gen_work(&stratum, &g_work)) {
                     /* nonce range used up and the connection just dropped */
                     pthread_mutex_unlock(&g_work_lock);
@@ -2041,7 +2125,7 @@ static void *miner_thread(void *userdata) {
              * seconds) */
             pthread_mutex_lock(&g_work_lock);
             if (time(NULL) - g_work_time >= min_scantime
-                    || work_nonce(&work) >= end_nonce) {
+                    || work_nonce(&work) >= nonce_end(&work, thr_id)) {
                 if (unlikely(!get_work(mythr, &g_work))) {
                     applog(LOG_ERR, "work retrieval failed, exiting "
                             "mining thread %d", mythr->id);
@@ -2064,7 +2148,7 @@ static void *miner_thread(void *userdata) {
         if (work_differs(&work, &g_work)) {
             work_free(&work);
             work_copy(&work, &g_work);
-            work_set_nonce(&work, 0xffffffffU / opt_n_threads * thr_id);
+            work_set_nonce(&work, nonce_first(&work, thr_id));
         } else {
             /* same header: carry on from the last nonce, but under the
              * current job id and share target (a pool may re-send a job
@@ -2076,7 +2160,16 @@ static void *miner_thread(void *userdata) {
         pthread_mutex_unlock(&g_work_lock);
 
         if (jsonrpc_2 && work.data_size < RPC2_MIN_BLOB) {
-            /* no CryptoNight job yet */
+            /* no JSON-RPC 2.0 job yet */
+            sleep(1);
+            continue;
+        }
+        if (jsonrpc_2 && work_nonce(&work) > nonce_end(&work, thr_id)) {
+            /* all this thread's nonces of the job are hashed, and a
+             * JSON-RPC 2.0 job has nothing else to vary: wait for another
+             * (going on would take other threads' nonces, or another
+             * miner's top byte) */
+            work_set_nonce(&work, nonce_end(&work, thr_id));
             sleep(1);
             continue;
         }
@@ -2094,6 +2187,7 @@ static void *miner_thread(void *userdata) {
                 max64 = opt_scrypt_n < 16 ? 0x3ffff : 0x3fffff / opt_scrypt_n;
                 break;
             case ALGO_CRYPTONIGHT:
+            case ALGO_RANDOMX:
                 max64 = 0x40LL;
                 break;
             case ALGO_NEOSCRYPT:
@@ -2132,8 +2226,8 @@ static void *miner_thread(void *userdata) {
                 break;
             }
         }
-        if (work_nonce(&work) + max64 > end_nonce)
-            max_nonce = end_nonce;
+        if (work_nonce(&work) + max64 > nonce_end(&work, thr_id))
+            max_nonce = nonce_end(&work, thr_id);
         else
             max_nonce = work_nonce(&work) + max64;
 
@@ -2226,7 +2320,12 @@ static void *miner_thread(void *userdata) {
             break;
         case ALGO_CRYPTONIGHT:
             rc = scanhash_cryptonight(thr_id, work.data, work.data_size,
-                    work.target, max_nonce, &hashes_done);
+                    work.target, max_nonce, &hashes_done, work.result);
+            break;
+        case ALGO_RANDOMX:
+            rc = scanhash_randomx(thr_id, work.data, work.data_size,
+                    work.seed_hash, work.target, max_nonce, &hashes_done,
+                    work.result);
             break;
 
         default:
@@ -2243,9 +2342,11 @@ static void *miner_thread(void *userdata) {
                 hashes_done / (diff.tv_sec + diff.tv_usec * 1e-6);
             pthread_mutex_unlock(&stats_lock);
         }
-        if (!opt_quiet) {
+        /* (no hashes: a RandomX thread that waited for the dataset) */
+        if (!opt_quiet && hashes_done) {
             switch(opt_algo) {
             case ALGO_CRYPTONIGHT:
+            case ALGO_RANDOMX:
                 applog(LOG_INFO, "thread %d: %" PRIu64 " hashes, %.2f H/s",
                         thr_id, hashes_done, thr_hashrates[thr_id]);
                 break;
@@ -2266,6 +2367,7 @@ static void *miner_thread(void *userdata) {
             if (i == opt_n_threads) {
                 switch(opt_algo) {
                 case ALGO_CRYPTONIGHT:
+                case ALGO_RANDOMX:
                     applog(LOG_INFO, "Total: %.2f H/s", hashrate);
                     break;
                 default:
@@ -2297,6 +2399,8 @@ static void restart_threads(void) {
 static bool work_changed(const struct work *a, const struct work *b)
 {
     if (!a->job_id != !b->job_id || (a->job_id && strcmp(a->job_id, b->job_id)))
+        return true;
+    if (jsonrpc_2 && memcmp(a->seed_hash, b->seed_hash, sizeof(a->seed_hash)))
         return true;
     return memcmp(a->data, b->data, jsonrpc_2 ? sizeof(a->data) : 76) != 0;
 }
@@ -2442,6 +2546,11 @@ static bool stratum_handle_response(char *buf) {
 
     if (!id_val || json_is_null(id_val) || (jsonrpc_2 ? (!res_val && !err_val) : !res_val))
         goto out;
+    /* the answer to a keep-alive, not to a share */
+    if (jsonrpc_2 && json_integer_value(id_val) == RPC2_KEEPALIVE_ID) {
+        ret = true;
+        goto out;
+    }
 
     if(jsonrpc_2) {
         json_t *status = json_object_get(res_val, "status");
@@ -2473,8 +2582,26 @@ static bool stratum_handle_response(char *buf) {
     return ret;
 }
 
+/* JSON-RPC 2.0 pools send nothing between jobs, which can be minutes apart
+ * (a new Monero block every 2 minutes on average), and some drop miners
+ * they have not heard from: after a minute of silence, say we are still
+ * here */
+static bool rpc2_keepalive(void)
+{
+    char id[sizeof(rpc2_id)], *req;
+    bool ok;
+
+    rpc2_get_id(id);
+    req = json_request(json_pack("{s:s, s:{s:s}, s:i}", "method", "keepalived",
+            "params", "id", id, "id", RPC2_KEEPALIVE_ID));
+    ok = req && stratum_send_line(&stratum, req);
+    free(req);
+    return ok;
+}
+
 static void *stratum_thread(void *userdata) {
     struct thr_info *mythr = userdata;
+    int silent = 0;	/* JSON-RPC 2.0: minutes without a word from the pool */
     char *s;
 
     stratum.url = tq_pop(mythr->q, NULL );
@@ -2486,6 +2613,7 @@ static void *stratum_thread(void *userdata) {
         int failures = 0;
 
         while (!stratum.curl) {
+            silent = 0;
             pthread_mutex_lock(&g_work_lock);
             g_work_time = 0;
             pthread_mutex_unlock(&g_work_lock);
@@ -2531,7 +2659,10 @@ static void *stratum_thread(void *userdata) {
             }
         }
 
-        if (!stratum_socket_full(&stratum, 120)) {
+        if (!stratum_socket_full(&stratum, jsonrpc_2 ? 60 : 120)) {
+            /* JSON-RPC 2.0: give up after 5 silent minutes */
+            if (jsonrpc_2 && ++silent < 5 && rpc2_keepalive())
+                continue;
             applog(LOG_ERR, "Stratum connection timed out");
             s = NULL;
         } else
@@ -2541,6 +2672,7 @@ static void *stratum_thread(void *userdata) {
             applog(LOG_ERR, "Stratum connection interrupted");
             continue;
         }
+        silent = 0;
         if (!stratum_handle_method(&stratum, s))
             stratum_handle_response(s);
         free(s);
@@ -2631,8 +2763,11 @@ static void parse_arg(int key, char *arg) {
                 }
             }
         }
+        /* other names */
         if (i == ARRAY_SIZE(algo_names) && !strcmp(arg, "odocrypt"))
-            opt_algo = i = ALGO_ODO;	/* its other name */
+            opt_algo = i = ALGO_ODO;
+        if (i == ARRAY_SIZE(algo_names) && (!strcmp(arg, "rx/0") || !strcmp(arg, "rx")))
+            opt_algo = i = ALGO_RANDOMX;
         if (i == ARRAY_SIZE(algo_names))
             show_usage_and_exit(1);
         break;
@@ -2828,6 +2963,16 @@ static void parse_arg(int key, char *arg) {
         free(opt_param_key);
         opt_param_key = strdup(arg);
         break;
+    case 1019:
+        if (!strcmp(arg, "auto"))
+            opt_randomx_mode = RX_MODE_AUTO;
+        else if (!strcmp(arg, "fast"))
+            opt_randomx_mode = RX_MODE_FAST;
+        else if (!strcmp(arg, "light"))
+            opt_randomx_mode = RX_MODE_LIGHT;
+        else
+            show_usage_and_exit(1);
+        break;
     case 'S':
         use_syslog = true;
         break;
@@ -2970,6 +3115,9 @@ int main(int argc, char *argv[]) {
 		aes_ni_supported = cryptonight_cpu_has_aesni();
 		applog(LOG_INFO, "Using JSON-RPC 2.0");
 		applog(LOG_INFO, "AES-NI: %s", aes_ni_supported ? "yes" : "no (using portable AES)");
+	} else if (opt_algo == ALGO_RANDOMX) {
+		jsonrpc_2 = true;
+		applog(LOG_INFO, "Using JSON-RPC 2.0");
 	} else if (opt_algo == ALGO_NEOSCRYPT) {
 		applog(LOG_INFO, "NeoScrypt: using %s", neoscrypt_impl_name());
 	} else if (opt_algo >= ALGO_ARGON2D4096 && opt_algo <= ALGO_ARGON2D16000) {
@@ -2989,6 +3137,10 @@ int main(int argc, char *argv[]) {
 				"r from 8 to 32\n", argv[0]);
 			show_usage_and_exit(1);
 		}
+	}
+	if (opt_randomx_mode != RX_MODE_AUTO && opt_algo != ALGO_RANDOMX) {
+		fprintf(stderr, "%s: --randomx-mode is for randomx\n", argv[0]);
+		show_usage_and_exit(1);
 	}
 	if (opt_algo >= ALGO_YESCRYPT && opt_algo <= ALGO_YESPOWERR16) {
 		char params[160];
@@ -3053,8 +3205,26 @@ int main(int argc, char *argv[]) {
 #endif
 	if (num_processors < 1)
 		num_processors = 1;
-	if (!opt_n_threads)
+	if (!opt_n_threads) {
 		opt_n_threads = num_processors;
+		/* a thread per 2 MiB scratchpad the L3 cache holds, at most */
+		if (opt_algo == ALGO_CRYPTONIGHT || opt_algo == ALGO_RANDOMX) {
+			uint64_t l3 = cpu_l3_cache_size();
+
+			if (l3 && l3 / (2 << 20) < (uint64_t) num_processors) {
+				opt_n_threads = l3 >= (2 << 20) ? (int) (l3 / (2 << 20)) : 1;
+				applog(LOG_INFO, "%d threads, as many 2 MiB scratchpads as the processor's L3 cache (%u MiB) holds (-t sets another number)",
+						opt_n_threads, (unsigned) (l3 >> 20));
+			}
+		}
+	}
+
+	/* RandomX: the cache and dataset, before any thread needs them */
+	if (opt_algo == ALGO_RANDOMX) {
+		if (!rx_setup(opt_randomx_mode, opt_n_threads, num_processors))
+			return 1;
+		applog(LOG_INFO, "RandomX: %s", rx_describe());
+	}
 
 #ifdef HAVE_SYSLOG_H
 	if (use_syslog)

@@ -18,27 +18,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, distcheck: true }
-          - { os: ubuntu-24.04, arch: x86-64, cc: clang }
-          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, variant: no assembly, configure: --disable-assembly }
+          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, cxx: g++, distcheck: true }
+          - { os: ubuntu-24.04, arch: x86-64, cc: clang, cxx: clang++ }
+          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, cxx: g++, variant: no assembly, configure: --disable-assembly }
+          - { os: ubuntu-24.04, arch: x86-64, cc: gcc, cxx: g++, variant: no RandomX, configure: --disable-randomx }
           - os: ubuntu-24.04
             arch: x86-64
             cc: gcc
+            cxx: g++
             variant: sanitizers
             cflags: -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
             ldflags: -fsanitize=address,undefined
-          - { os: ubuntu-24.04-arm, arch: arm64, cc: gcc }
+          - { os: ubuntu-24.04-arm, arch: arm64, cc: gcc, cxx: g++ }
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake pkg-config libcurl4-openssl-dev libjansson-dev
+          sudo apt-get install -y autoconf automake pkg-config g++ libcurl4-openssl-dev libjansson-dev
       - run: ./autogen.sh
       - name: Configure
         env:
           CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
           CFLAGS: ${{ matrix.cflags || '-O2' }}
+          CXXFLAGS: ${{ matrix.cflags || '-O2' }}
           LDFLAGS: ${{ matrix.ldflags }}
         run: ./configure ${{ matrix.configure }}
       - run: make -j"$(nproc)"

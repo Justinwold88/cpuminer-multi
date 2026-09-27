@@ -12,21 +12,21 @@
 FROM ubuntu:24.04 AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        autoconf automake make gcc libc6-dev pkg-config \
+        autoconf automake make gcc g++ libc6-dev pkg-config \
         libcurl4-openssl-dev libjansson-dev \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
 ARG CFLAGS="-O2"
 RUN ./autogen.sh \
- && ./configure CFLAGS="$CFLAGS" \
+ && ./configure CFLAGS="$CFLAGS" CXXFLAGS="$CFLAGS" \
  && make -j"$(nproc)" \
  && make check \
  && strip minerd
 
 FROM ubuntu:24.04
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libcurl4t64 libjansson4 ca-certificates \
+ && apt-get install -y --no-install-recommends libcurl4t64 libjansson4 libstdc++6 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/minerd /usr/local/bin/minerd
 USER nobody

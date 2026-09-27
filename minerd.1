@@ -11,7 +11,7 @@ cryptocurrencies, with many proof-of-work algorithms (see \fB\-a\fR).
 It mines for a pool over the Stratum protocol, or solo against a coin's own
 node over the getblocktemplate protocol (BIP 22 and 23).
 It also speaks getwork, the protocol getblocktemplate replaced, and the
-JSON-RPC 2.0 protocol of CryptoNight pools.
+JSON-RPC 2.0 protocol of Monero (RandomX) and CryptoNight pools.
 .PP
 In its normal mode of operation, \fBminerd\fR connects to a mining server
 (specified with the \fB\-o\fR option), receives work from it and starts hashing.
@@ -22,6 +22,8 @@ supports it; in any case, fresh work is fetched as needed.
 With Stratum the server is responsible for sending fresh work at least
 every two minutes; if it fails to do so, \fBminerd\fR stops hashing until it
 does, and reconnects if the connection is lost.
+JSON-RPC 2.0 pools can go longer without a new job: after a minute of
+silence \fBminerd\fR sends a keep-alive, and it reconnects after five.
 .PP
 When solo mining with getblocktemplate, \fBminerd\fR builds the coinbase
 transaction itself, paying the block reward to the address given with
@@ -64,12 +66,12 @@ minerd \-a sha256d \-o http://localhost:18332 \-O rpcuser:rpcpass \e
 .RE
 .fi
 .PP
-To mine CryptoNight for a pool, in the background, sending the output to
-the syslog facility and omitting the per-thread hashmeter output:
+To mine Monero on a local P2Pool node, in the background, sending the
+output to the syslog facility and omitting the per-thread hashmeter output:
 .PP
 .nf
 .RS
-minerd \-BSq \-a cryptonight \-o stratum+tcp://example.com:3333 \-u WALLET \-p x
+minerd \-BSq \-a randomx \-o stratum+tcp://127.0.0.1:3333 \-u x \-p x
 .RE
 .fi
 .SH OPTIONS
@@ -139,6 +141,10 @@ yespower 1.0, N=2048, r=32, no key, unless \fB\-\-param\-n\fR,
 .TP
 .B yespowerr16
 yespower 1.0, N=4096, r=16, no key (Yenten)
+.TP
+.B randomx
+RandomX, the rx/0 variant (Monero); \fBrx/0\fR is accepted too.
+See \fB\-\-randomx\-mode\fR.
 .TP
 .B cryptonight
 CryptoNight, the original version (Bytecoin)
@@ -254,6 +260,13 @@ Enable output of all protocol-level activities.
 \fB\-q\fR, \fB\-\-quiet\fR
 Disable per-thread hashmeter output.
 .TP
+\fB\-\-randomx\-mode\fR=\fIMODE\fR
+RandomX: \fBfast\fR, with a 2080 MiB dataset shared by the threads, built
+from a 256 MiB cache when mining starts and whenever the pool's seed hash
+changes (every 2048 blocks on Monero); \fBlight\fR, with the cache only,
+several times slower; or \fBauto\fR, the default: fast mode if the machine,
+or the container it runs in, has the memory, and the program is 64-bit.
+.TP
 \fB\-r\fR, \fB\-\-retries\fR=\fIN\fR
 Set the maximum number of times to retry if a network call fails.
 If not specified, the miner will retry indefinitely.
@@ -272,7 +285,8 @@ Log to the syslog facility instead of standard error.
 \fB\-t\fR, \fB\-\-threads\fR=\fIN\fR
 Set the number of miner threads.
 If not specified, the miner will try to detect the number of available processors
-and use that.
+and use that; for \fBrandomx\fR and \fBcryptonight\fR, no more threads than
+the processor's L3 cache holds 2 MiB scratchpads.
 .TP
 \fB\-T\fR, \fB\-\-timeout\fR=\fISECONDS\fR
 Set a timeout for long polling.

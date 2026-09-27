@@ -3,8 +3,9 @@ cpuminer-multi
 
 [![build](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml/badge.svg)](https://github.com/Justinwold88/cpuminer-multi/actions/workflows/build.yml)
 
-A multi-threaded CPU miner for many proof-of-work algorithms, for Linux,
-macOS and Windows on x86-64, 32-bit x86, ARM64 and 32-bit ARM.
+A multi-threaded CPU miner for many proof-of-work algorithms, Monero's
+RandomX among them, for Linux, macOS and Windows on x86-64, 32-bit x86, ARM64,
+32-bit ARM and RISC-V.
 
 This is a maintained fork of [Lucas Jones's cpuminer-multi](https://github.com/lucasjones/cpuminer-multi),
 itself a fork of [pooler's cpuminer](https://github.com/pooler/cpuminer)
@@ -27,6 +28,7 @@ Algorithms
 
 | `-a` | Coins | Status |
 |------|-------|--------|
+| `randomx` (`rx/0`) | Monero, and other coins on RandomX's rx/0 | works (new in this fork) |
 | `sha256d` | Bitcoin, Bitcoin Cash, Peercoin, ... | works |
 | `scrypt` | Litecoin, Dogecoin | works |
 | `x11` | Dash | works |
@@ -58,8 +60,12 @@ Bitcoin, Litecoin, Dogecoin, Dash and DigiByte are mined with ASICs or GPUs
 today, so a CPU earns next to nothing on them. They are useful for testing
 and for testnets.
 
-Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
-and Myriad moved to other algorithms too. Planned: RandomX and Verthash.
+Monero left CryptoNight for RandomX in 2019, and Vertcoin, Feathercoin and
+Myriad moved to other algorithms too. Planned: Verthash (Vertcoin).
+
+RandomX variants with other parameters (Wownero's `rx/wow`, ArQmA's
+`rx/arq`, ...) are not supported: the miner refuses their jobs rather than
+send shares a pool would reject.
 
 Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
 broken) and the unused scrypt-jane sources.
@@ -75,7 +81,9 @@ Building
 ========
 
 You need a C compiler, GNU make, autoconf, automake, pkg-config,
-[libcurl](https://curl.se/libcurl/) and [jansson](https://github.com/akheron/jansson) 2.7 or newer.
+[libcurl](https://curl.se/libcurl/) and [jansson](https://github.com/akheron/jansson) 2.7 or newer, and for
+RandomX a C++11 compiler (without one, configure leaves RandomX out, and says
+so; `--disable-randomx` leaves it out on purpose).
 
 Then, in the source directory:
 
@@ -95,7 +103,7 @@ and its man page.
 Install the tools and libraries first:
 
 * Debian, Ubuntu: `sudo apt install build-essential autoconf automake pkg-config libcurl4-openssl-dev libjansson-dev`
-* Fedora: `sudo dnf install gcc make autoconf automake pkgconf-pkg-config libcurl-devel jansson-devel`
+* Fedora: `sudo dnf install gcc gcc-c++ make autoconf automake pkgconf-pkg-config libcurl-devel jansson-devel`
 * Arch: `sudo pacman -S --needed base-devel curl jansson`
 
 #### macOS
@@ -137,10 +145,16 @@ fastest code on one machine, build there with
   kernel allows it (`/sys/kernel/mm/transparent_hugepage/enabled` set to
   `madvise` or `always`, the default on most distributions).
 * **ARM64** (Raspberry Pi 3 and later with a 64-bit OS, Apple Silicon, AWS
-  Graviton): portable C code.
+  Graviton): portable C code, but for RandomX (below).
 * **32-bit ARM**: assembly for ARMv5E and later, chosen when compiling. Add
   `-mfpu=neon` to `CFLAGS` to use NEON.
-* `./configure --disable-assembly` builds everything from portable C.
+* **RandomX** compiles its programs to machine code (JIT) on x86-64, ARM64
+  and 64-bit RISC-V (which needs GCC 14 or Clang 17 or newer to build), and
+  interprets them elsewhere, several times slower. It uses hardware AES
+  (AES-NI, the ARMv8 crypto extensions, RISC-V's Zvkned) and SSSE3 or AVX2
+  for Argon2 when the processor has them.
+* `./configure --disable-assembly` builds everything from portable C, but for
+  RandomX's JIT compilers.
 * AIX: export `OBJECT_MODE=64` for a 64-bit build. Long options are only
   available through a configuration file.
 
@@ -183,6 +197,46 @@ for `-a yescrypt`).
 
 Servers that only speak getwork, the protocol getblocktemplate replaced, are
 still supported; `--no-gbt` and `--no-getwork` choose between the two.
+
+#### RandomX (Monero)
+
+    minerd -a randomx -o stratum+tcp://pool.example.com:3333 -u WALLET_ADDRESS -p x
+
+Or mine on your own [P2Pool](https://p2pool.io) node, which pays you directly
+(start `p2pool` with your wallet address, then point the miner at it):
+
+    minerd -a randomx -o stratum+tcp://127.0.0.1:3333 -u x -p x
+
+RandomX has two modes (`--randomx-mode`):
+
+* **fast** (the default when the machine has the memory): the threads share
+  a 2080 MiB dataset, built from a 256 MiB cache when mining starts, and
+  again whenever the pool's *seed hash* changes (every 2048 blocks, about
+  2.8 days on Monero). Building it takes from a few seconds to a minute or
+  two, using every processor; mining pauses meanwhile.
+* **light**: only the 256 MiB cache, for machines without 2.5 GB to spare, or
+  32-bit systems. Several times slower.
+
+`auto` picks fast mode when the machine (or the container it runs in) has
+the dataset, the cache and a gigabyte more. Each thread also needs a 2 MiB
+scratchpad, which should fit in the processor's L3 cache: unless `-t` says
+otherwise, the miner starts no more threads than the L3 cache holds
+scratchpads (and says so), as for CryptoNight.
+
+Large pages make RandomX faster, and on Linux the miner asks for them
+(transparent huge pages, which most distributions allow). To reserve real
+huge pages instead (a few percent faster again), before starting the miner:
+
+    sudo sysctl -w vm.nr_hugepages=1280
+
+On Windows, large pages need the "Lock pages in memory" user right (*Local
+Security Policy → Local Policies → User Rights Assignment*, then sign out and
+in again), and the miner then uses them.
+
+The miner tells the pool it mines `rx/0`, refuses jobs for other
+algorithms, keeps the top byte of the nonce that NiceHash-style proxies
+(xmrig-proxy) set, and sends a keep-alive after a minute of silence from the
+pool (giving up on the connection after five).
 
 #### CryptoNight
 

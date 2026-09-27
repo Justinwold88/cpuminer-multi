@@ -1225,17 +1225,15 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 
 	/* built with jansson so quotes or backslashes in credentials are escaped */
 	if (jsonrpc_2)
-		req = json_pack("{s:s, s:{s:s, s:s, s:s}, s:i}",
-				"method", "login",
-				"params", "login", user, "pass", pass, "agent", USER_AGENT,
-				"id", 1);
-	else
+		s = rpc2_login_req(user, pass);
+	else {
 		req = json_pack("{s:i, s:s, s:[s, s]}",
 				"id", 2, "method", "mining.authorize",
 				"params", user, pass);
-	if (req)
-		s = json_dumps(req, 0);
-	json_decref(req);
+		if (req)
+			s = json_dumps(req, 0);
+		json_decref(req);
+	}
 	if (!s || !stratum_send_line(sctx, s))
 		goto out;
 
