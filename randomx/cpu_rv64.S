@@ -45,3 +45,8 @@ rv64_test_vector_aes:
 	vaesdm.vv v0, v0
 	li x10, 0
 	ret
+
+/* cpuminer-multi: the stack is not executable */
+#if defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif

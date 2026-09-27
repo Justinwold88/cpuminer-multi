@@ -262,3 +262,8 @@ DECL(randomx_reciprocal_fast):
 	mov rcx, rdi
 #endif
 	#include "asm/randomx_reciprocal.inc"
+
+/* cpuminer-multi: the stack is not executable */
+#if defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
