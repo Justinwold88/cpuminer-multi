@@ -211,6 +211,14 @@ extern int scanhash_neoscrypt(int thr_id, uint32_t *pdata, const uint32_t *ptarg
                             uint32_t max_nonce, uint64_t *hashes_done);
 extern int neoscrypt_use_impl(int impl);
 
+/* yescrypt and yespower variants */
+enum { YESCRYPT, YESCRYPT_R8, YESCRYPT_R16, YESCRYPT_R32, YESPOWER, YESPOWER_R16 };
+extern bool yespower_set_params(int variant, uint32_t N, uint32_t r, const char *key);
+extern void yespower_describe(int variant, char *buf, size_t len);
+extern void yespower_hash(void *output, const void *input, int variant);
+extern int scanhash_yespower(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
+                            int variant, uint32_t max_nonce, uint64_t *hashes_done);
+
 /* instruction set extensions, for code that picks one at run time */
 extern bool cpu_has_sse2(void);
 extern bool cpu_has_avx2(void);

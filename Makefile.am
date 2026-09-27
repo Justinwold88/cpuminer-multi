@@ -1,6 +1,7 @@
 
 EXTRA_DIST	= autogen.sh example-cfg.json README.md LICENSE Dockerfile \
-		  sha3/aes_helper.c sha3/sph_hamsi_helper.c sha3/sph_x15_helper.c
+		  sha3/aes_helper.c sha3/sph_hamsi_helper.c sha3/sph_x15_helper.c \
+		  yespower/yespower-platform.c yespower/README.cpuminer
 
 noinst_HEADERS	= compat.h elist.h miner.h neoscrypt-mix.h \
 		  crypto/c_blake256.h crypto/c_groestl.h crypto/c_jh.h \
@@ -12,7 +13,9 @@ noinst_HEADERS	= compat.h elist.h miner.h neoscrypt-mix.h \
 		  sha3/sph_hamsi.h sha3/sph_jh.h sha3/sph_keccak.h \
 		  sha3/sph_luffa.h sha3/sph_shabal.h sha3/sph_shavite.h \
 		  sha3/sph_simd.h sha3/sph_skein.h sha3/sph_types.h \
-		  sha3/sph_whirlpool.h
+		  sha3/sph_whirlpool.h \
+		  yespower/insecure_memzero.h yespower/sha256.h \
+		  yespower/sysendian.h yespower/yespower.h
 
 AM_CPPFLAGS	= $(JANSSON_CFLAGS) $(LIBCURL_CFLAGS)
 AM_CFLAGS	= $(PTHREAD_FLAGS) -fno-strict-aliasing
@@ -39,6 +42,9 @@ libalgos_a_SOURCES = \
 		  odocrypt.c \
 		  neoscrypt.c \
 		  argon2d.c \
+		  yescrypt.c \
+		  yespower/yespower-opt.c \
+		  yespower/sha256.c \
 		  cpu-features.c \
 		  sha3/sph_keccak.c \
 		  sha3/sph_groestl.c \

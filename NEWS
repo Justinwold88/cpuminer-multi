@@ -10,6 +10,10 @@ Algorithms
   (Credits) and argon2d16000 (Alterdot), checked against RFC 9106 and
   the reference implementation; with AVX2, 2.2 times as fast as the
   reference implementation.
+- New: yescrypt (Myriad, GlobalBoost-Y), yescryptr8, yescryptr16,
+  yescryptr32, yespower and yespowerr16 (Yenten), with Openwall's
+  yespower code; --param-n, --param-r and --param-key for the other
+  yespower coins.
 - blake: shares are now valid for Blakecoin and the coins merge-mined
   with it (their transaction ids are single SHA-256).
 - skein: shares are checked against the real target (DigiByte); about

@@ -39,6 +39,9 @@ Algorithms
 | `argon2d500` | Dynamic | works (new in this fork) |
 | `argon2d250` | Credits | works (new in this fork) |
 | `argon2d16000` | Alterdot | works (new in this fork) |
+| `yescrypt` | Myriad (Yescrypt), GlobalBoost-Y | works (new in this fork) |
+| `yescryptr8`, `yescryptr16`, `yescryptr32` | coins on yescrypt with a key (WAVI: r32) | works (new in this fork) |
+| `yespower`, `yespowerr16` | yespower 1.0 coins (Yenten: r16; others with `--param-*`) | works (new in this fork) |
 | `cryptonight` | Bytecoin and other coins on the original CryptoNight | works (fixed in this fork) |
 | `scrypt:N` | scrypt with N other than 1024 (Vertcoin used it until 2014) | legacy |
 | `keccak` | Maxcoin | legacy |
@@ -56,8 +59,7 @@ today, so a CPU earns next to nothing on them. They are useful for testing
 and for testnets.
 
 Monero left CryptoNight for **RandomX** in 2019, and Vertcoin, Feathercoin
-and Myriad moved to other algorithms too. Planned: RandomX, Verthash and
-Yescrypt.
+and Myriad moved to other algorithms too. Planned: RandomX and Verthash.
 
 Removed: Heavycoin's `heavy` (its network is gone, and the implementation was
 broken) and the unused scrypt-jane sources.
@@ -176,7 +178,8 @@ DigiByte's node makes block templates for one of its algorithms at a time
 (its `algo=` setting, scrypt by default); the miner asks it for the one it
 mines (`sha256d`, `scrypt`, `skein`, `qubit` or `odo`), so the node needs no
 particular setting. Myriad's node cannot be asked: set its `algo=` to the
-algorithm you mine (`algo=argon2d` for `-a argon2d4096`).
+algorithm you mine (`algo=argon2d` for `-a argon2d4096`, `algo=yescrypt`
+for `-a yescrypt`).
 
 Servers that only speak getwork, the protocol getblocktemplate replaced, are
 still supported; `--no-gbt` and `--no-getwork` choose between the two.
@@ -191,6 +194,16 @@ Odocrypt changes its cipher every 10 days: its key is the block time rounded
 down to a multiple of 10 days. Solo mining uses the key the node gives, so
 it works on every DigiByte network; with a pool, the key comes from the
 block time with the main network's period (testnet's is 1 day).
+
+#### yespower
+
+Coins on yespower 1.0 differ in their N, r and key (personalization
+string): give them with `--param-n`, `--param-r` and `--param-key`, as for
+cpuminer-opt. Sugarchain, for example:
+
+    minerd -a yespower --param-n=2048 --param-r=32 \
+        --param-key="Satoshi Nakamoto 31/Oct/2008 Proof-of-work is essentially one-CPU-one-vote" \
+        -o stratum+tcp://POOL:PORT -u ADDRESS -p x
 
 #### Benchmark
 

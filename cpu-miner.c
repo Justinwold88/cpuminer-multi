@@ -119,6 +119,12 @@ enum algos {
     ALGO_ARGON2D500,  /* Argon2d, t=2 m=500 p=8 */
     ALGO_ARGON2D250,  /* Argon2d, t=1 m=250 p=4 */
     ALGO_ARGON2D16000,/* Argon2d, t=1 m=16000 p=1 */
+    ALGO_YESCRYPT,    /* yescrypt 0.5, N=2048 r=8, the header as key */
+    ALGO_YESCRYPTR8,  /* yescrypt 0.5, N=2048 r=8 */
+    ALGO_YESCRYPTR16, /* yescrypt 0.5, N=4096 r=16 */
+    ALGO_YESCRYPTR32, /* yescrypt 0.5, N=4096 r=32 */
+    ALGO_YESPOWER,    /* yespower 1.0, N=2048 r=32 */
+    ALGO_YESPOWERR16, /* yespower 1.0, N=4096 r=16 */
     ALGO_CRYPTONIGHT, /* CryptoNight */
 };
 
@@ -142,6 +148,12 @@ static const char *algo_names[] = {
     [ALGO_ARGON2D500] =  "argon2d500",
     [ALGO_ARGON2D250] =  "argon2d250",
     [ALGO_ARGON2D16000] = "argon2d16000",
+    [ALGO_YESCRYPT] =    "yescrypt",
+    [ALGO_YESCRYPTR8] =  "yescryptr8",
+    [ALGO_YESCRYPTR16] = "yescryptr16",
+    [ALGO_YESCRYPTR32] = "yescryptr32",
+    [ALGO_YESPOWER] =    "yespower",
+    [ALGO_YESPOWERR16] = "yespowerr16",
     [ALGO_CRYPTONIGHT] = "cryptonight",
 };
 
@@ -159,6 +171,8 @@ static bool allow_getwork = true;
 /* the node mines several algorithms (DigiByte): name ours in requests */
 static _Atomic bool gbt_name_algo = false;
 static char *opt_coinbase_addr;	/* getblocktemplate: where the block reward goes */
+static uint32_t opt_param_n, opt_param_r;	/* yescrypt/yespower parameters */
+static char *opt_param_key;
 static char coinbase_sig[101] = "";
 static unsigned char pk_script[128];	/* ... as an output script */
 static size_t pk_script_size;
@@ -259,6 +273,12 @@ Options:\n\
                           argon2d500   Argon2d, 500 KiB: Dynamic\n\
                           argon2d250   Argon2d, 250 KiB: Credits\n\
                           argon2d16000 Argon2d, 16 MB: Alterdot\n\
+                          yescrypt     yescrypt: Myriad, GlobalBoost-Y\n\
+                          yescryptr8   yescrypt, \"Client Key\"\n\
+                          yescryptr16  yescrypt, N=4096 r=16\n\
+                          yescryptr32  yescrypt, N=4096 r=32: WAVI\n\
+                          yespower     yespower 1.0, N=2048 r=32 (--param-*)\n\
+                          yespowerr16  yespower 1.0, N=4096 r=16: Yenten\n\
                           cryptonight  CryptoNight: Bytecoin\n\
                           keccak       Keccak-256: Maxcoin\n\
                           quark        Quark\n\
@@ -278,6 +298,9 @@ Options:\n\
       --no-gbt          disable getblocktemplate support\n\
       --no-getwork      disable getwork support\n\
   -f, --diff-factor=N   divide the pool's share difficulty by N (default: 1)\n\
+      --param-n=N       yescrypt/yespower: N (a power of 2 from 1024 on)\n\
+      --param-r=R       yescrypt/yespower: r (8 to 32)\n\
+      --param-key=TEXT  yescrypt/yespower: personalization string\n\
       --cert=FILE       certificate for mining server using SSL\n\
   -x, --proxy=[PROTOCOL://]HOST[:PORT]  connect through a proxy\n\
   -t, --threads=N       number of miner threads (default: number of processors)\n\
@@ -335,6 +358,9 @@ static struct option const options[] = {
         { "no-longpoll", 0, NULL, 1003 },
         { "no-redirect", 0, NULL, 1009 },
         { "no-stratum", 0, NULL, 1007 },
+        { "param-key", 1, NULL, 1018 },
+        { "param-n", 1, NULL, 1016 },
+        { "param-r", 1, NULL, 1017 },
         { "pass", 1, NULL, 'p' },
         { "protocol-dump", 0, NULL, 'P' },
         { "proxy", 1, NULL, 'x' },
@@ -1881,6 +1907,12 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work) {
     case ALGO_ARGON2D500:
     case ALGO_ARGON2D250:
     case ALGO_ARGON2D16000:
+    case ALGO_YESCRYPT:
+    case ALGO_YESCRYPTR8:
+    case ALGO_YESCRYPTR16:
+    case ALGO_YESCRYPTR32:
+    case ALGO_YESPOWER:
+    case ALGO_YESPOWERR16:
         diff_to_target(work->target, diff / (65536.0 * opt_diff_factor));
         break;
     case ALGO_FRESH:
@@ -2071,6 +2103,12 @@ static void *miner_thread(void *userdata) {
             case ALGO_ARGON2D500:
             case ALGO_ARGON2D250:
             case ALGO_ARGON2D16000:
+            case ALGO_YESCRYPT:
+            case ALGO_YESCRYPTR8:
+            case ALGO_YESCRYPTR16:
+            case ALGO_YESCRYPTR32:
+            case ALGO_YESPOWER:
+            case ALGO_YESPOWERR16:
                 max64 = 0x3ff;
                 break;
             case ALGO_FRESH:
@@ -2174,6 +2212,16 @@ static void *miner_thread(void *userdata) {
         case ALGO_ARGON2D16000:
             rc = scanhash_argon2d(thr_id, work.data, work.target,
                     ARGON2D_4096 + (opt_algo - ALGO_ARGON2D4096),
+                    max_nonce, &hashes_done);
+            break;
+        case ALGO_YESCRYPT:
+        case ALGO_YESCRYPTR8:
+        case ALGO_YESCRYPTR16:
+        case ALGO_YESCRYPTR32:
+        case ALGO_YESPOWER:
+        case ALGO_YESPOWERR16:
+            rc = scanhash_yespower(thr_id, work.data, work.target,
+                    YESCRYPT + (opt_algo - ALGO_YESCRYPT),
                     max_nonce, &hashes_done);
             break;
         case ALGO_CRYPTONIGHT:
@@ -2762,6 +2810,24 @@ static void parse_arg(int key, char *arg) {
         }
         strcpy(coinbase_sig, arg);
         break;
+    case 1016:
+    case 1017: {
+        /* checked against the algorithm once all options are read */
+        char *ep;
+        unsigned long n = strtoul(arg, &ep, 10);
+
+        if (!*arg || *ep || n == 0 || n > 0x7fffffff)
+            show_usage_and_exit(1);
+        if (key == 1016)
+            opt_param_n = (uint32_t) n;
+        else
+            opt_param_r = (uint32_t) n;
+        break;
+    }
+    case 1018:
+        free(opt_param_key);
+        opt_param_key = strdup(arg);
+        break;
     case 'S':
         use_syslog = true;
         break;
@@ -2908,6 +2974,28 @@ int main(int argc, char *argv[]) {
 		applog(LOG_INFO, "NeoScrypt: using %s", neoscrypt_impl_name());
 	} else if (opt_algo >= ALGO_ARGON2D4096 && opt_algo <= ALGO_ARGON2D16000) {
 		applog(LOG_INFO, "Argon2d: using %s", argon2d_impl_name());
+	}
+
+	/* yescrypt and yespower parameters */
+	if (opt_param_n || opt_param_r || opt_param_key) {
+		if (opt_algo < ALGO_YESCRYPT || opt_algo > ALGO_YESPOWERR16) {
+			fprintf(stderr, "%s: --param-n, --param-r and --param-key are for "
+				"yescrypt and yespower\n", argv[0]);
+			show_usage_and_exit(1);
+		}
+		if (!yespower_set_params(YESCRYPT + (opt_algo - ALGO_YESCRYPT),
+				opt_param_n, opt_param_r, opt_param_key)) {
+			fprintf(stderr, "%s: N must be a power of 2 from 1024 to 524288, "
+				"r from 8 to 32\n", argv[0]);
+			show_usage_and_exit(1);
+		}
+	}
+	if (opt_algo >= ALGO_YESCRYPT && opt_algo <= ALGO_YESPOWERR16) {
+		char params[160];
+
+		yespower_describe(YESCRYPT + (opt_algo - ALGO_YESCRYPT), params,
+				sizeof(params));
+		applog(LOG_INFO, "%s: %s", algo_names[opt_algo], params);
 	}
 
 

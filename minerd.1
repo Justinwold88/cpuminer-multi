@@ -121,6 +121,25 @@ Argon2d 1.0 with 250 KiB, 1 pass, 4 lanes (Credits)
 .B argon2d16000
 Argon2d 1.0 with 16000 KiB, 1 pass, 1 lane (Alterdot)
 .TP
+.B yescrypt
+yescrypt 0.5, N=2048, r=8, the block header as key (Myriad, GlobalBoost-Y)
+.TP
+.B yescryptr8
+yescrypt 0.5, N=2048, r=8, key "Client Key"
+.TP
+.B yescryptr16
+yescrypt 0.5, N=4096, r=16, key "Client Key"
+.TP
+.B yescryptr32
+yescrypt 0.5, N=4096, r=32, key "WaviBanana"
+.TP
+.B yespower
+yespower 1.0, N=2048, r=32, no key, unless \fB\-\-param\-n\fR,
+\fB\-\-param\-r\fR or \fB\-\-param\-key\fR say otherwise
+.TP
+.B yespowerr16
+yespower 1.0, N=4096, r=16, no key (Yenten)
+.TP
 .B cryptonight
 CryptoNight, the original version (Bytecoin)
 .TP
@@ -208,6 +227,11 @@ Ignore requests from the server to switch to a different URL.
 .TP
 \fB\-\-no\-stratum\fR
 Do not switch to Stratum, even if the server advertises support for it.
+.TP
+\fB\-\-param\-n\fR=\fIN\fR, \fB\-\-param\-r\fR=\fIR\fR, \fB\-\-param\-key\fR=\fITEXT\fR
+yescrypt and yespower: the N (a power of 2 from 1024 to 524288), r (8
+to 32) and personalization string of the coin, where they differ from the
+algorithm's.
 .TP
 \fB\-o\fR, \fB\-\-url\fR=[\fISCHEME\fR://][\fIUSERNAME\fR[:\fIPASSWORD\fR]@]\fIHOST\fR:\fIPORT\fR[/\fIPATH\fR]
 Set the URL of the mining server to connect to.

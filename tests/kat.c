@@ -8,6 +8,8 @@
  *  - neoscrypt: real Feathercoin blocks, and Feathercoin Core's code
  *  - argon2d*: RFC 9106's test vector, and the reference implementation
  *    (as Myriad ships it)
+ *  - yescrypt*, yespower*: Openwall's test vectors, Openwall's reference
+ *    implementation, and (yescrypt) Myriad's own yescrypt code
  *  - odo: DigiByte Core's cipher test vectors, and its implementation for
  *    the synthetic headers
  *  - cryptonight: the CryptoNote/Monero "slow hash" test vectors
@@ -25,6 +27,8 @@
 
 #include "cpuminer-config.h"
 #include "miner.h"
+
+#include "yespower/yespower.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -110,6 +114,21 @@ ARGON2D_FNS(ARGON2D_4096, 4096)
 ARGON2D_FNS(ARGON2D_500, 500)
 ARGON2D_FNS(ARGON2D_250, 250)
 ARGON2D_FNS(ARGON2D_16000, 16000)
+
+/* yescrypt and yespower, each variant */
+#define YESPOWER_FNS(V, N) \
+static void h_##N(void *out, const void *in) { yespower_hash(out, in, V); } \
+static int s_##N(int thr_id, uint32_t *pdata, const uint32_t *ptarget, \
+	uint32_t max_nonce, uint64_t *hashes_done) \
+{ \
+	return scanhash_yespower(thr_id, pdata, ptarget, V, max_nonce, hashes_done); \
+}
+YESPOWER_FNS(YESCRYPT, yescrypt)
+YESPOWER_FNS(YESCRYPT_R8, yescryptr8)
+YESPOWER_FNS(YESCRYPT_R16, yescryptr16)
+YESPOWER_FNS(YESCRYPT_R32, yescryptr32)
+YESPOWER_FNS(YESPOWER, yespower)
+YESPOWER_FNS(YESPOWER_R16, yespowerr16)
 
 /* Odocrypt with the main network's key for the header's time, as odohash() */
 static int s_odo(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
@@ -203,6 +222,30 @@ static const struct {
 		"45d545f96a4d96344db68554279e8c865ed32e457539d853c9e9a7e48659d087",
 		"3be5bb6383840ca90f18b5704114cd83d9fbffc1b7e80b90febb0a6ece05d1dc",
 		"5304cf9ac518dd6fe2cdf3ad5be6a8556632ca0eeffd06e83e382eb8a3312e2f" } },
+	{ "yescrypt", false, h_yescrypt, s_yescrypt, {
+		"f71f7dc502c2e7cceea26246317a6ea9ac35ce7560977616857016b15d748780",
+		"630d10d05127e8df3be9b9df6ece6a9249177fd7b66036082de2b456f6506057",
+		"e3131418b0e133da8ccd3746e0cad8606abd096178ed0c0aed814684d31765d0" } },
+	{ "yescryptr8", false, h_yescryptr8, s_yescryptr8, {
+		"e30eefac5cef503230a3990fb3f9abc375e20ec1b103c7c5a010d1c5c34e9631",
+		"5145ce4f6f70d13f0f656f4e294379a81d0fc319fabcdfdac2dc0cd6d0714c8d",
+		"6e31d8db34279bd0c8dce19958e1db7b85f54daf3b0911da6fe1904f6f7d9a09" } },
+	{ "yescryptr16", false, h_yescryptr16, s_yescryptr16, {
+		"4e6b5319ffa98e34203f50006e48daf13e4bd17f10fc36f0c92948df00aa8052",
+		"83241bba5a7017e08ad67c717a865633b736d57700e722144df3448e6b09491c",
+		"328a1e3092cd88f6a171580b49fc97d0f53ae2503135b06dcc30dc09e8bee833" } },
+	{ "yescryptr32", false, h_yescryptr32, s_yescryptr32, {
+		"b46abc6481c660189f7a7a818c580dcdd4a3397f23378d63336bbc11fe896226",
+		"dba6a8f72b03e1ff1ecb2495a63f92e007a8af0f01d8d210f0bfc4707285c583",
+		"ae99864b318b2cfd5cc87aa3df04f23c1840033e80787a053d15595501982987" } },
+	{ "yespower", false, h_yespower, s_yespower, {
+		"bfb216c5c103f05572696dba8740ee5044016add2ea6fa227bcf364d99a0ec33",
+		"65958d5c338043a68ef2e7cb43cadc480331e1b9d0b799b8763d37d5248b5b51",
+		"41c63eb313cea2a34998222eafe86eb63dfe3e4ab998207e3d40f7efdc95393f" } },
+	{ "yespowerr16", false, h_yespowerr16, s_yespowerr16, {
+		"463e0b93e624a5897f0400823dc5db83f3b2afb8cc0ee550630587f8c7611e95",
+		"1118ec2a153f726b39fac9d8fcb3447a52935af6cfe78bca37930e880c72e0df",
+		"6f51e2a7ddc260523c47821920983523c4b936b04e3cbbe77fe779a5ed8a0d3d" } },
 };
 #define N_ALGOS (sizeof(algos) / sizeof(algos[0]))
 
@@ -286,6 +329,30 @@ static const struct {
 	{ 0xD59, "Mora labelled me Unknown Sample, which the overseer translated as Odo'ital......",
 	  "a7dd19a7fcdf3b7c0a8da1765553d903ff42687fe2f36c3930b82d7a68e426a90f49f1fc4b06263d"
 	  "cf95d70a1b436337586955ef61c976f97785da2d2c8144b6767f824d53dd518c2cfdce1e9bd74fe1" },
+};
+
+/* Openwall's yespower test vectors (TESTS-OK): the input is i * 3 for
+ * i = 0 .. 79; key NULL: none, "": the input itself (BSTY) */
+static const struct {
+	int version;
+	uint32_t N, r;
+	const char *key;
+	const char *expected;
+} yespower_vectors[] = {
+	{ YESPOWER_0_5, 2048, 8, "Client Key",
+	  "a59fec4c4fdda16e3b1405adda66d525b68e7cadfcfe6ac066c7ad118cd80590" },
+	{ YESPOWER_0_5, 2048, 8, "",
+	  "5ea2b2956a9eace30a3237ff1d441edee1dc25aab8f0ea15c12165f83a7bc265" },
+	{ YESPOWER_0_5, 4096, 32, "WaviBanana",
+	  "3ae05abb3c5cf6f75415a92554c98d50e38ec9552cfa78373616f480b24e559f" },
+	{ YESPOWER_0_5, 2048, 8, NULL,
+	  "5ecbd8e8d7c90baed4bbf8916a1225dcc3c65f5c9165bae81cdde3cffad128e8" },
+	{ YESPOWER_1_0, 2048, 8, NULL,
+	  "69e0e895b3df7aeeb837d71fe199e9d34f7ec46ecbca7a2c4308e51857ae9b46" },
+	{ YESPOWER_1_0, 4096, 16, NULL,
+	  "33fb8f063824a4a020f63dca535f5ca66ab5576468c75d1ccaac7542f76495ac" },
+	{ YESPOWER_1_0, 1024, 32, "personality test",
+	  "1f0269acf565c49adc0ef9b8f26ab3808cdc38394a254fddeedcc3aacff6ad9d" },
 };
 
 /* FIPS 180-2 SHA-256 test vectors (the last one needs two blocks, and
@@ -705,6 +772,30 @@ int main(int argc, char **argv)
 			failures += scan_test(find_algo("argon2d4096"), header[2]);
 		}
 		argon2d_use_impl(-1);
+	}
+
+	/* yespower's own test vectors */
+	for (v = 0; v < sizeof(yespower_vectors) / sizeof(yespower_vectors[0]); v++) {
+		uint8_t src[80];
+		yespower_params_t p;
+
+		for (h = 0; h < 80; h++)
+			src[h] = (uint8_t) (h * 3);
+		p.version = (yespower_version_t) yespower_vectors[v].version;
+		p.N = yespower_vectors[v].N;
+		p.r = yespower_vectors[v].r;
+		p.pers = (const uint8_t *) yespower_vectors[v].key;
+		p.perslen = p.pers ? strlen(yespower_vectors[v].key) : 0;
+		if (p.pers && !p.perslen) {
+			p.pers = src;
+			p.perslen = sizeof(src);
+		}
+		yespower_tls(src, sizeof(src), &p, (yespower_binary_t *) hash);
+		snprintf(what, sizeof(what), "yespower %s N=%u r=%u %s",
+			 p.version == YESPOWER_0_5 ? "0.5" : "1.0", p.N, p.r,
+			 !yespower_vectors[v].key ? "(no key)" :
+			 *yespower_vectors[v].key ? yespower_vectors[v].key : "(BSTY)");
+		failures += check(what, hash, yespower_vectors[v].expected);
 	}
 
 	printf("%d failure(s)\n", failures);
