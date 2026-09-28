@@ -74,9 +74,20 @@ broken) and the unused scrypt-jane sources.
 Download
 ========
 
-* Source: `git clone https://github.com/Justinwold88/cpuminer-multi`
-* Windows: every build on GitHub Actions keeps `minerd.exe` with the DLLs it
-  needs, under *Actions → build → the latest run → Artifacts*.
+From the [Releases page](https://github.com/Justinwold88/cpuminer-multi/releases):
+
+* Windows (64-bit): `cpuminer-multi-VERSION-windows-x86_64.zip`. Unzip it and
+  run `minerd.exe` from a command prompt (see [Usage](#usage)). Antivirus
+  programs often flag CPU miners, this one included, as "potentially unwanted
+  software"; the zip is built by GitHub Actions from this repository's source,
+  and `SHA256SUMS` on the same page has its checksum.
+* Source: `cpuminer-multi-VERSION.tar.gz` builds with `./configure && make`
+  (no autoconf or automake needed; see [Building](#building) for the
+  libraries), or `git clone https://github.com/Justinwold88/cpuminer-multi`.
+
+Every build on GitHub Actions also keeps a Windows `minerd.exe` with the DLLs
+it needs, under *Actions → build → a run → Artifacts* (for people signed in to
+GitHub).
 
 Building
 ========

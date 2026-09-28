@@ -51,6 +51,13 @@ jobs:
       - name: Check the source tarball builds
         if: matrix.distcheck
         run: make distcheck
+      - name: Keep the source tarball (for a release)
+        if: matrix.distcheck
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-tarball
+          path: cpuminer-multi-*.tar.gz
+          if-no-files-found: error
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -99,10 +106,53 @@ jobs:
       - name: Package minerd.exe with the DLLs it needs
         run: |
           mkdir dist
-          cp minerd.exe README.md LICENSE COPYING dist/
+          cp minerd.exe README.md NEWS LICENSE COPYING example-cfg.json dist/
           ldd minerd.exe | awk '$3 ~ /\/ucrt64\// { print $3 }' | xargs -r cp -t dist/
           dist/minerd.exe --version
       - uses: actions/upload-artifact@v7
         with:
           name: minerd-windows-x86_64
           path: dist/
+
+  # A tag v<version>, where <version> is the one in configure.ac, publishes a
+  # GitHub release with the Windows build and the source tarball, once every
+  # job above has passed.
+  release:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          if ! grep -qF "AC_INIT([cpuminer-multi], [$version]," configure.ac; then
+            echo "::error::the tag $TAG is not the version in configure.ac"
+            exit 1
+          fi
+          mkdir release
+          (cd artifacts/minerd-windows-x86_64 &&
+           zip -9 -r "../../release/cpuminer-multi-$version-windows-x86_64.zip" .)
+          cp "artifacts/source-tarball/cpuminer-multi-$version.tar.gz" release/
+          (cd release && sha256sum -- * > SHA256SUMS)
+          # the notes: how to use the files, then this version's NEWS
+          # (Markdown punctuation escaped: NEWS is plain text)
+          {
+            echo "- **Windows:** unzip \`cpuminer-multi-$version-windows-x86_64.zip\` and run \`minerd.exe\` from a command prompt."
+            echo "- **Linux, macOS:** \`cpuminer-multi-$version.tar.gz\` builds with \`./configure && make\` (see the README)."
+            echo "- \`SHA256SUMS\`: the files' SHA-256 checksums."
+            echo
+            awk 'NR == 1 { next } /^Version / { exit } { print }' NEWS |
+              sed -e 's/[][\`*_<>#]/\\&/g' -e 's/^[A-Za-z]/### &/'
+          } > notes.md
+          gh release create "$TAG" --verify-tag --title "cpuminer-multi $version" \
+            --notes-file notes.md release/*

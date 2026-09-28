@@ -86,6 +86,9 @@ Platforms and building
 - Requires jansson 2.7 or newer (the bundled 1.x copy is gone) and no
   longer needs OpenSSL.
 - GitHub Actions CI replaces Travis CI; the Dockerfile builds this tree.
+- Releases: pushing a tag v<version> has GitHub Actions publish the
+  Windows build (minerd.exe with the DLLs it needs) and the source
+  tarball, once every build and test has passed.
 - Fixed undefined behaviour found with AddressSanitizer and UBSan.
 - 32-bit ARM builds no longer get an executable stack.
 - Apple Silicon Macs: the build no longer fails at the link. Apple's
