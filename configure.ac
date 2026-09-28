@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([cpuminer-multi], [1.1.0-dev],
+AC_INIT([cpuminer-multi], [1.1.0],
 	[https://github.com/Justinwold88/cpuminer-multi/issues],
 	[cpuminer-multi],
 	[https://github.com/Justinwold88/cpuminer-multi])
