@@ -147,15 +147,19 @@ void sha256_hash(unsigned char *hash, const unsigned char *data, size_t len);
 void sha256d(unsigned char *hash, const unsigned char *data, int len);
 
 #ifdef USE_ASM
-#if defined(__ARM_NEON__) || defined(__i386__) || defined(__x86_64__)
+/* four SHA-256s at once: in the x86 assembly, and in the 32-bit ARM
+ * assembly when it is built for NEON (sha2-arm.S). Not on 64-bit ARM, where
+ * Apple's compilers define __ARM_NEON__ too but there is no such code. */
+#if defined(__i386__) || defined(__x86_64__) || \
+	(defined(__arm__) && defined(__APCS_32__) && defined(__ARM_NEON__))
 #define HAVE_SHA256_4WAY 1
-int sha256_use_4way();
+int sha256_use_4way(void);
 void sha256_init_4way(uint32_t *state);
 void sha256_transform_4way(uint32_t *state, const uint32_t *block, int swap);
 #endif
 #if defined(__x86_64__) && defined(USE_AVX2)
 #define HAVE_SHA256_8WAY 1
-int sha256_use_8way();
+int sha256_use_8way(void);
 void sha256_init_8way(uint32_t *state);
 void sha256_transform_8way(uint32_t *state, const uint32_t *block, int swap);
 #endif

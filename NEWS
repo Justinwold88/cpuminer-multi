@@ -88,6 +88,9 @@ Platforms and building
 - GitHub Actions CI replaces Travis CI; the Dockerfile builds this tree.
 - Fixed undefined behaviour found with AddressSanitizer and UBSan.
 - 32-bit ARM builds no longer get an executable stack.
+- Apple Silicon Macs: the build no longer fails at the link. Apple's
+  compilers define __ARM_NEON__ on arm64 too, which asked for the four-way
+  SHA-256 assembly that only 32-bit ARM has.
 
 Version multi 1.0.4 (Tanguy Pruvot)
 
