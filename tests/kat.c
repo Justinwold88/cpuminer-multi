@@ -872,15 +872,18 @@ static int hash_cli(const char *algo, const char *hex)
 	}
 	if (!strcmp(algo, "cryptonight")) {
 		cryptonight_hash(out, in, len);
-	} else if (!strcmp(algo, "verthash") && !(getenv("KAT_VERTHASH_DATA")
-			? verthash_load(getenv("KAT_VERTHASH_DATA")) : verthash_create(NULL, processors())) == 1) {
-		fprintf(stderr, "no Verthash data file\n");
-		return 2;
 	} else {
 		size_t i = find_algo(algo);
 
 		if (i == N_ALGOS || len != 80) {
 			fprintf(stderr, "unknown algorithm or input is not 80 bytes\n");
+			return 2;
+		}
+		/* loaded (1), or missing (0) or unreadable (-1) */
+		if (algos[i].verthash && (getenv("KAT_VERTHASH_DATA")
+				? verthash_load(getenv("KAT_VERTHASH_DATA"))
+				: verthash_create(NULL, processors())) != 1) {
+			fprintf(stderr, "no Verthash data file\n");
 			return 2;
 		}
 		algos[i].fn(out, in);
